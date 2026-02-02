@@ -1,4 +1,3 @@
-import os
 import re
 import unicodedata
 import streamlit as st
@@ -48,7 +47,6 @@ PROBETRAINING = {
     "price": "kostenlos",
 }
 
-# Ausstattung / USPs (alles außer Zirkeltraining)
 FEATURES = [
     "Vibrationstraining",
     "Körperanalyse",
@@ -59,18 +57,13 @@ FEATURES = [
     "Wellness",
 ]
 
-# No-Gos (hart)
-NO_GOS = [
-    "keine konkreten Preise nennen",
-    "keine medizinischen Aussagen",
-    "keine Vergleiche mit anderen Studios",
-    "keine Garantien",
-]
+# =========================================================
+# HILFSFUNKTIONEN (Textbausteine)
+# =========================================================
+def cta_short() -> str:
+    return f"📞 Telefon: {STUDIO['phone_display']} ({STUDIO['phone_tel']})"
 
-# =========================================================
-# TEXT-BAUSTEINE (freundlich-beratend, neutral)
-# =========================================================
-def cta_block() -> str:
+def cta_full() -> str:
     return (
         f"📞 Telefon: {STUDIO['phone_display']} ({STUDIO['phone_tel']})\n"
         f"📍 Adresse: {STUDIO['address']}\n"
@@ -89,8 +82,15 @@ def probetraining_block() -> str:
 def parking_block() -> str:
     return f"🚗 Parken: {STUDIO['parking']}"
 
+def normalize(text: str) -> str:
+    text = text.strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text
+
 def safety_note_if_needed(user_text: str) -> str:
-    # Keine medizinische Beratung: bei typischen medizinischen Stichwörtern kurz abgrenzen
     t = normalize(user_text)
     medical_markers = [
         "diagnose", "arzt", "operation", "bandscheibe", "herz", "blutdruck",
@@ -104,17 +104,33 @@ def safety_note_if_needed(user_text: str) -> str:
     return ""
 
 # =========================================================
-# NORMALISIERUNG & ROUTING (Multi-Intent, robust)
+# INTENT-ERKENNUNG (robust, Multi-Intent)
 # =========================================================
-def normalize(text: str) -> str:
-    text = text.strip().lower()
-    text = unicodedata.normalize("NFKD", text)
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    text = re.sub(r"[^\w\s]", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text
-
 INTENT_PATTERNS = {
+    # NEU: Unsicherheit/Einstiegshürde (sehr wichtig)
+    "einstieg_unsicherheit": [
+        r"lange(r)? keinen sport",
+        r"lange(r)? nicht trainiert",
+        r"lange(r)? keinen sport gemacht",
+        r"unsportlich",
+        r"anfanger",
+        r"anfaenger",
+        r"neuling",
+        r"wieder anfangen",
+        r"wieder starten",
+        r"lange pause",
+    ],
+    # NEU: Orientierungslosigkeit („wo anfangen?“)
+    "orientierungslosigkeit": [
+        r"weiss nicht wo ich anfangen soll",
+        r"weiß nicht wo ich anfangen soll",
+        r"wo anfangen",
+        r"wie anfangen",
+        r"wie starte ich",
+        r"keine ahnung wie starten",
+        r"unsicher wie anfangen",
+    ],
+
     "preise": [
         r"\bpreis(e)?\b", r"\bkosten\b", r"\bbeitrag\b", r"\bmitglied(schaft)?\b", r"\babo\b", r"\bvertrag\b", r"\btarif\b"
     ],
@@ -125,13 +141,15 @@ INTENT_PATTERNS = {
         r"\bkurse?\b", r"\bjumping\b", r"\bbauch\b", r"\bbeine\b", r"\bpo\b", r"\bdance\b", r"\bvibration\b", r"\bplattenkurs\b"
     ],
     "infos": [
-        r"\boffnungszeit(en)?\b", r"\bgeoffnet\b", r"\bwann\b", r"\buhr\b", r"\badresse\b", r"\banfahrt\b", r"\bwo\b", r"\bparken\b", r"\bparkplatz\b"
+        r"\boffnungszeit(en)?\b", r"\böffnungszeit(en)?\b", r"\bgeoffnet\b", r"\bgeöffnet\b", r"\bwann\b", r"\buhr\b",
+        r"\badresse\b", r"\banfahrt\b", r"\bwo\b", r"\bparken\b", r"\bparkplatz\b"
     ],
+
     "ziel_abnehmen": [
         r"\babnehmen\b", r"\bgewicht\b", r"\bfett\b", r"\bkalorien\b", r"\bfigur\b"
     ],
     "ziel_ruecken": [
-        r"\brucken\b", r"\bhaltung\b", r"\bverspann\b"
+        r"\brucken\b", r"\brücken\b", r"\bhaltung\b", r"\bverspann\b"
     ],
     "ziel_muskel": [
         r"\bmuskel\b", r"\bkraft\b", r"\bhypertroph\b", r"\baufbau\b"
@@ -141,8 +159,10 @@ INTENT_PATTERNS = {
     ],
 }
 
+# Priorität: erst Unsicherheit/Orientierung, dann Ziele, dann Kurse/Infos, dann Probetraining/Preise
 INTENT_PRIORITY = [
-    # Ziele zuerst (beratend), dann Kurse/Infos, dann Probetraining, dann Preise
+    "einstieg_unsicherheit",
+    "orientierungslosigkeit",
     "ziel_ruecken",
     "ziel_abnehmen",
     "ziel_muskel",
@@ -162,20 +182,19 @@ def detect_intents(user_text: str) -> list[str]:
                 hits.append(intent)
                 break
 
-    # Dedupe, sort by priority
     hits = list(dict.fromkeys(hits))
     hits.sort(key=lambda x: INTENT_PRIORITY.index(x) if x in INTENT_PRIORITY else 999)
 
-    # Nur Top-2 Intents beantworten, um kurz zu bleiben
+    # Top-2 reichen, damit es kurz bleibt
     return hits[:2] if hits else ["unklar"]
 
 # =========================================================
-# SESSION-MEMORY (wirkt "mitdenkend" ohne KI)
+# SESSION-MEMORY (wirkt „mitdenkend“)
 # =========================================================
 def init_memory():
     if "memory" not in st.session_state:
         st.session_state.memory = {
-            "goal": None,               # z.B. "abnehmen"
+            "goal": None,
             "asked_price": False,
             "asked_courses": False,
             "asked_infos": False,
@@ -186,7 +205,7 @@ def set_goal_from_intents(intents: list[str]):
     if "ziel_abnehmen" in intents:
         st.session_state.memory["goal"] = "abnehmen"
     elif "ziel_ruecken" in intents:
-        st.session_state.memory["goal"] = "ruecken"
+        st.session_state.memory["goal"] = "rücken stärken"
     elif "ziel_muskel" in intents:
         st.session_state.memory["goal"] = "muskelaufbau"
     elif "ziel_fitness" in intents:
@@ -194,45 +213,37 @@ def set_goal_from_intents(intents: list[str]):
 
 def goal_phrase() -> str:
     g = st.session_state.memory.get("goal")
-    if not g:
-        return ""
-    return f"Da Ihr Ziel „{g}“ ist, "
+    return f"Da Ihr Ziel „{g}“ ist, " if g else ""
 
 # =========================================================
-# KURS-EMPFEHLUNG (neutral, ohne medizinische Versprechen)
+# KURS-EMPFEHLUNG (ohne Kurszeiten, außer wenn explizit gefragt)
 # =========================================================
 def recommend_courses_for_goal(goal: str) -> list[str]:
-    # Nur Empfehlungen, die logisch passen, ohne Garantien.
     if goal == "abnehmen":
         return ["Jumping", "Bauch, Beine, Po", "Fitness-Dance"]
-    if goal == "ruecken":
-        # Kein medizinischer Anspruch – Fokus: moderat, Technik, Betreuung
-        return ["Vibrationstraining (als schonender Einstieg)", "Bauch, Beine, Po (mit Fokus auf Rumpfstabilität – angepasst)"]
+    if goal == "rücken stärken":
+        return ["Vibrationstraining (ruhiger Einstieg)", "Rumpfstabilität im Geräte-Training (angepasst)"]
     if goal == "muskelaufbau":
         return ["Freihantelbereich (Technik & Progression mit Betreuung)", "Körperanalyse zur Verlaufskontrolle"]
     if goal == "allgemeine fitness":
         return ["Fitness-Dance", "Jumping", "Vibrationstraining"]
     return []
 
-def course_plan_text(selected_courses: list[str]) -> str:
-    # Gibt passende Zeiten aus, wenn Kurs im Plan vorkommt
+def course_plan_compact() -> str:
     lines = []
     for day, items in COURSE_PLAN.items():
         for time, title in items:
-            for c in selected_courses:
-                # Grobe Matching-Logik
-                if c.lower().startswith(title.lower().split()[0].lower()) or c.lower() in title.lower():
-                    lines.append(f"• {day}: {time} {title}")
+            lines.append(f"• {day}: {time} {title}")
     return "\n".join(lines)
 
 # =========================================================
-# ANTWORT-ENGINE (No-Gos enforced)
+# ANTWORT-ENGINE (kurz, beratend, No-Gos sicher)
 # =========================================================
 def build_answer(user_text: str, intents: list[str]) -> str:
     init_memory()
     set_goal_from_intents(intents)
 
-    # Track flags
+    # Flags
     if "preise" in intents:
         st.session_state.memory["asked_price"] = True
     if "kurse" in intents:
@@ -243,52 +254,52 @@ def build_answer(user_text: str, intents: list[str]) -> str:
         st.session_state.memory["asked_probetraining"] = True
 
     safety = safety_note_if_needed(user_text)
-
-    # Compose with short, structured blocks
-    parts = []
-
-    # 1) Ziele zuerst (beratend)
     goal = st.session_state.memory.get("goal")
-    if any(i.startswith("ziel_") for i in intents) and goal:
-        intro = (
-            f"{safety}"
-            f"{goal_phrase()}kann ein ruhiger, gut betreuter Einstieg sehr sinnvoll sein. "
-            "Wir achten dabei auf saubere Ausführung und steigern nach und nach."
-        )
-        parts.append(intro)
 
-        # Kurs-/Angebots-Empfehlung, neutral
+    # 0) Einstiegshürde / Unsicherheit (immer kurz, keine Kurszeiten)
+    if "einstieg_unsicherheit" in intents:
+        return (
+            "Das ist überhaupt kein Problem.\n\n"
+            "Wir legen großen Wert auf einen ruhigen, gut betreuten Einstieg und passen das Training individuell an – ohne Überforderung.\n\n"
+            "Dafür eignet sich ein kostenloses Probetraining mit persönlicher Betreuung sehr gut. "
+            "So können Sie in Ruhe starten und herausfinden, was für Sie passt.\n\n"
+            f"{cta_short()}"
+        ).strip()
+
+    # 0b) Orientierungslosigkeit („wo anfangen?“) – ebenfalls kurz, keine Kurszeiten
+    if "orientierungslosigkeit" in intents:
+        return (
+            "Das geht vielen so – und ist überhaupt kein Problem.\n\n"
+            "Wir unterstützen Sie dabei, einen passenden Einstieg zu finden: ruhig, strukturiert und mit persönlicher Betreuung.\n\n"
+            "Ein kostenloses Probetraining ist dafür ideal. So können Sie in Ruhe starten und wir besprechen gemeinsam, was am besten zu Ihrem Alltag passt.\n\n"
+            f"{cta_short()}"
+        ).strip()
+
+    # 1) Ziele (kurz + Empfehlung, aber KEINE Kurszeiten unless „kurse“ gefragt)
+    if any(i.startswith("ziel_") for i in intents) and goal:
+        parts = []
+        parts.append(
+            f"{safety}{goal_phrase()}kann ein ruhiger, gut betreuter Einstieg sehr sinnvoll sein. "
+            "Wir achten auf saubere Ausführung und steigern nach und nach."
+        )
+
         rec = recommend_courses_for_goal(goal)
         if rec:
-            rec_line = "Passend dazu kommen bei uns oft diese Optionen infrage: " + ", ".join(rec) + "."
-            parts.append(rec_line)
+            parts.append("Passend dazu kommen bei uns oft diese Optionen infrage: " + ", ".join(rec) + ".")
 
-            # Wenn echte Kurszeiten vorhanden (für echte Kurse)
-            plan_lines = course_plan_text([r for r in rec if any(k in r.lower() for k in ["jumping", "bauch", "dance", "vibration"])])
-            if plan_lines:
-                parts.append("Aktuelle Kurszeiten (Auszug):\n" + plan_lines)
-
-        # Probetraining als nächster Schritt (nur einladen, nicht aktiv terminieren)
-        parts.append(
-            "Wenn Sie möchten, können Sie das bei einem kostenlosen Probetraining in Ruhe kennenlernen."
-        )
+        # Probetraining als nächster Schritt
+        parts.append("Wenn Sie möchten, können Sie das bei einem kostenlosen Probetraining in Ruhe kennenlernen.")
         parts.append(probetraining_block())
-        parts.append("Für die Anmeldung melden Sie sich am besten kurz telefonisch – dann finden wir gemeinsam den passenden Rahmen.")
-        parts.append(cta_block())
-
+        parts.append("Für die Anmeldung melden Sie sich am besten kurz telefonisch.")
+        parts.append(cta_full())
         return "\n\n".join(parts).strip()
 
-    # 2) Kurse
+    # 2) Kurse (hier sind Zeiten erlaubt)
     if "kurse" in intents:
-        parts.append("Gern – hier ein Überblick über unseren Kursplan:")
-        # Kursplan kompakt
-        lines = []
-        for day, items in COURSE_PLAN.items():
-            for time, title in items:
-                lines.append(f"• {day}: {time} {title}")
-        parts.append("\n".join(lines))
+        parts = []
+        parts.append("Gern – hier ein Überblick über unseren aktuellen Kursplan:")
+        parts.append(course_plan_compact())
 
-        # Wenn Ziel schon bekannt → Empfehlung ergänzen
         if goal:
             rec = recommend_courses_for_goal(goal)
             if rec:
@@ -297,54 +308,54 @@ def build_answer(user_text: str, intents: list[str]) -> str:
         parts.append("Wenn Sie möchten, können Sie Kurse auch im Rahmen eines kostenlosen Probetrainings ausprobieren.")
         parts.append(probetraining_block())
         parts.append("Für die Anmeldung melden Sie sich am besten kurz telefonisch.")
-        parts.append(cta_block())
+        parts.append(cta_full())
         return "\n\n".join(parts).strip()
 
     # 3) Infos (Öffnungszeiten, Adresse, Parken)
     if "infos" in intents:
+        parts = []
         parts.append("Gern – hier die wichtigsten Infos:")
         parts.append(f"📍 Adresse: {STUDIO['address']}")
         parts.append("🕒 Öffnungszeiten:\n" + STUDIO["opening_hours"])
         parts.append(parking_block())
         parts.append("Wenn Sie möchten, können Sie direkt ein kostenloses Probetraining vereinbaren.")
         parts.append("Für die Anmeldung melden Sie sich am besten kurz telefonisch.")
-        parts.append(cta_block())
+        parts.append(cta_full())
         return "\n\n".join(parts).strip()
 
-    # 4) Probetraining
+    # 4) Probetraining (klar, kurz)
     if "probetraining" in intents:
+        parts = []
         parts.append("Sehr gern – ein Probetraining ist ideal, um unser Studio kennenzulernen.")
         parts.append(probetraining_block())
         if goal:
             parts.append(f"{goal_phrase()}können wir im Probetraining genau passend starten – ohne Überforderung.")
         parts.append("Für die Anmeldung melden Sie sich am besten kurz telefonisch.")
-        parts.append(cta_block())
+        parts.append(cta_full())
         return "\n\n".join(parts).strip()
 
-    # 5) Preise (No-Go: keine konkreten Zahlen)
+    # 5) Preise (keine Zahlen, neutral)
     if "preise" in intents:
+        parts = []
         parts.append(
-            f"{safety}"
-            "Die Beiträge können je nach Laufzeit und Angebot variieren. "
+            f"{safety}Die Beiträge können je nach Laufzeit und Angebot variieren. "
             "Damit Sie das passende Modell bekommen, empfehle ich Ihnen ein kurzes telefonisches Gespräch oder ein kostenloses Probetraining."
         )
-        # Wenn Ziel bekannt, nutzen wir es, ohne „viele“ o.ä.
         if goal:
             parts.append(f"{goal_phrase()}wäre ein Probetraining mit Betreuung ein guter Einstieg, um den passenden Rahmen zu finden.")
         else:
-            parts.append("Wenn Sie mir Ihr Ziel nennen (z. B. Abnehmen, Rücken, Muskelaufbau), kann ich Ihnen die sinnvollste Option bei uns einordnen.")
+            parts.append("Wenn Sie mir Ihr Ziel nennen (z. B. Abnehmen, Rücken stärken, Muskelaufbau), kann ich Ihnen die sinnvollste Option bei uns einordnen.")
         parts.append(probetraining_block())
         parts.append("Für die Anmeldung melden Sie sich am besten kurz telefonisch.")
-        parts.append(cta_block())
+        parts.append(cta_full())
         return "\n\n".join(parts).strip()
 
-    # 6) Unklar → eine kurze Rückfrage (max 1)
-    parts.append(
-        "Gern helfe ich Ihnen weiter. Geht es bei Ihnen eher um Kurse, Probetraining, Öffnungszeiten/Anfahrt oder Mitgliedschaft?"
-    )
-    parts.append("Alternativ erreichen Sie uns direkt telefonisch.")
-    parts.append(cta_block())
-    return "\n\n".join(parts).strip()
+    # 6) Unklar → 1 kurze Rückfrage
+    return (
+        "Gern helfe ich Ihnen weiter. Geht es bei Ihnen eher um Kurse, Probetraining, Öffnungszeiten/Anfahrt oder Mitgliedschaft?\n\n"
+        "Alternativ erreichen Sie uns direkt telefonisch.\n\n"
+        f"{cta_full()}"
+    ).strip()
 
 # =========================================================
 # STREAMLIT UI
@@ -381,7 +392,6 @@ with col2:
     st.link_button("📞 Anrufen", STUDIO["phone_tel"])
 
 with col3:
-    # Kurze Statusanzeige, wirkt "smart" ohne KI
     g = st.session_state.memory.get("goal")
     if g:
         st.info(f"Merke ich mir: Ziel = {g}")
