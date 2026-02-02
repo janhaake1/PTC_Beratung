@@ -379,15 +379,25 @@ for msg in st.session_state.chat:
     with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
         st.write(msg["content"])
 
-# Input
 user_input = st.chat_input("Ihre Frage (z.B. Probetraining, Kurse, Öffnungszeiten, Mitgliedschaft)")
 if user_input:
-    st.session_state.chat.append({"role": "user", "content": user_input})
-    answer = route_and_answer(user_input)
-    st.session_state.chat.append({"role": "assistant", "content": answer})
+    # 1) User sofort anzeigen
+    with st.chat_message("user"):
+        st.write(user_input)
 
+    # 2) In Verlauf speichern
+    st.session_state.chat.append({"role": "user", "content": user_input})
+
+    # 3) Antwort bauen
+    intents = detect_intents(user_input)
+    answer = build_answer(user_input, intents)
+
+    # 4) Assistant anzeigen + speichern
     with st.chat_message("assistant"):
         st.write(answer)
+
+    st.session_state.chat.append({"role": "assistant", "content": answer})
+
 
 st.markdown("---")
 st.markdown(f"**Direkter Kontakt:** [{STUDIO['phone_display']}]({STUDIO['phone_tel']})")
