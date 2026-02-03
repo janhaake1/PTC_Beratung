@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from typing import Optional, List, Dict, Callable
+from typing import Optional, List, Dict
 
 import streamlit as st
 
@@ -103,12 +103,16 @@ def normalize(text: str) -> str:
 
 def matches_any(text: str, patterns: List[str]) -> bool:
     for p in patterns:
-        if re.search(p, text):
-            return True
+        try:
+            if re.search(p, text):
+                return True
+        except re.error as e:
+            # App soll nicht crashen, sondern Fehler anzeigen
+            st.error(f"Regex-Fehler im Pattern: {p}\n{e}")
     return False
 
 # =========================================================
-# Session-Memory (optional)
+# Session-Memory
 # =========================================================
 def init_memory():
     if "memory" not in st.session_state:
@@ -293,10 +297,9 @@ def answer_default(_t: str) -> str:
     )
 
 # =========================================================
-# INTENT-REGISTRY (Reihenfolge = Priorität)
+# INTENTS (Reihenfolge = Priorität)
 # =========================================================
 INTENTS: List[Dict[str, object]] = [
-    # 1) Sicherheit / Beschwerden
     {
         "name": "medizin_beschwerden",
         "patterns": [
@@ -306,8 +309,6 @@ INTENTS: List[Dict[str, object]] = [
         ],
         "handler": answer_medizin,
     },
-
-    # 2) Preise/Kosten (keine Zahlen)
     {
         "name": "preise_kosten",
         "patterns": [
@@ -317,23 +318,16 @@ INTENTS: List[Dict[str, object]] = [
         ],
         "handler": answer_preise,
     },
-
-    # 3) Facilities / Wellness / Payment / Age / Accessibility
     {
         "name": "duschen_umkleide_spinde_getraenke",
         "patterns": [
-            # Duschen
             r"\bdusch(e|en)\b", r"\bduschen vorhanden\b", r"\bgibt es duschen\b", r"\bduschmoglichkeit\b", r"\bduschmöglichkeit\b",
             r"\bduschraum\b", r"\bmit dusche\b",
-            # Umkleide
             r"\bumkleide\b", r"\bumkleiden\b", r"\bumkleideraum\b", r"\bkabine\b", r"\bumziehen\b", r"\bwo umziehen\b",
-            # Spinde / Schließfächer
             r"\bspind(e)?\b", r"\bschliessfach\b", r"\bschließfach\b", r"\bschliessfaecher\b", r"\bschließfächer\b",
             r"\bspindschloss\b", r"\babschliessbar\b", r"\babschließbar\b", r"\bwerte wegschliessen\b", r"\bwerte wegschließen\b",
-            # Getränke
             r"\bgetrank(e)?\b", r"\bgetränk(e)?\b", r"\bwasser\b", r"\btrinken\b", r"\bgetrankeautomat\b", r"\bgetränkeautomat\b",
             r"\bflasche auffullen\b", r"\bflasche auffüllen\b", r"\bwasserstation\b", r"\bdrink\b",
-            # Kombifragen kurz
             r"\bdusche und spind\b", r"\bumkleide und dusche\b", r"\bspind und dusche\b",
         ],
         "handler": answer_facilities,
@@ -371,12 +365,10 @@ INTENTS: List[Dict[str, object]] = [
         "name": "barrierefreiheit",
         "patterns": [
             r"\bbarrierefrei\b", r"\brollstuhl\b", r"\brolli\b", r"\baufzug\b", r"\bstufen\b", r"\btreppe\b",
-            r"\bbehindertengerecht\b", r"\bzugaenglich\b", r"\zugänglich\b", r"\bebenerdig\b",
+            r"\bbehindertengerecht\b", r"\b(zugaenglich|zugänglich)\b", r"\bebenerdig\b",
         ],
         "handler": answer_accessibility,
     },
-
-    # 4) Komfort: Ablauf / Mitbringen / Anmeldung / Auslastung
     {
         "name": "ablauf_probetraining",
         "patterns": [
@@ -410,7 +402,7 @@ INTENTS: List[Dict[str, object]] = [
         "patterns": [
             r"\banmelden\b", r"\banmeldung\b", r"\btermin\b", r"\bbuchen\b", r"\breservier(en|ung)\b",
             r"\bprobetraining anmelden\b", r"\bwie anmelden\b", r"\bwie buche\b", r"\bwie reserviere\b",
-            r"\bberatungstermin\b", r"\bberatung\b", r"\bberatungsgespraech\b", r"\bberatungsgespräch\b",
+            r"\bberatungstermin\b",
         ],
         "handler": lambda _t: (
             "Gern – am einfachsten vereinbaren Sie ein persönliches Beratungsgespräch oder ein kostenloses Probetraining telefonisch.\n\n"
@@ -430,8 +422,6 @@ INTENTS: List[Dict[str, object]] = [
             f"{cta_short()}"
         ),
     },
-
-    # 5) Unsicherheit / Orientierung
     {
         "name": "einstieg_unsicherheit",
         "patterns": [
@@ -448,8 +438,6 @@ INTENTS: List[Dict[str, object]] = [
         ],
         "handler": answer_orientierung,
     },
-
-    # 6) Probetraining/Beratung (direkt)
     {
         "name": "probetraining_beratung",
         "patterns": [
@@ -458,8 +446,6 @@ INTENTS: List[Dict[str, object]] = [
         ],
         "handler": answer_probetraining,
     },
-
-    # 7) Infos (Adresse/Zeiten/Parken)
     {
         "name": "infos_anfahrt_parken_zeiten",
         "patterns": [
@@ -469,8 +455,6 @@ INTENTS: List[Dict[str, object]] = [
         ],
         "handler": answer_infos,
     },
-
-    # 8) Kurse
     {
         "name": "kurse",
         "patterns": [
@@ -479,8 +463,6 @@ INTENTS: List[Dict[str, object]] = [
         ],
         "handler": answer_kurse,
     },
-
-    # 9) Ausstattung allgemein
     {
         "name": "ausstattung",
         "patterns": [
@@ -494,7 +476,6 @@ INTENTS: List[Dict[str, object]] = [
 def route_and_answer(user_text: str) -> str:
     t = normalize(user_text)
 
-    # Ziel merken, wenn es im Text vorkommt (ohne gleich zu antworten)
     g = infer_goal(t)
     if g:
         set_goal(g)
@@ -526,12 +507,10 @@ with st.expander("Datenschutz-Hinweis", expanded=False):
         "Ich gebe keine medizinischen Einschätzungen, sondern allgemeine Hinweise zum Studiostart."
     )
 
-# Session init
 if "chat" not in st.session_state:
     st.session_state.chat = []
 init_memory()
 
-# Top actions
 col1, col2, col3 = st.columns([1, 1, 2])
 with col1:
     if st.button("Neues Gespräch"):
@@ -547,12 +526,10 @@ with col3:
     if g:
         st.info(f"Merke ich mir: Ziel = {g}")
 
-# Verlauf anzeigen
 for msg in st.session_state.chat:
     with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
         st.write(msg["content"])
 
-# Input (nur speichern + rerun, damit nichts doppelt gerendert wird)
 user_input = st.chat_input("Ihre Frage (z.B. Probetraining, Kurse, Öffnungszeiten, Mitgliedschaft)")
 if user_input:
     st.session_state.chat.append({"role": "user", "content": user_input})
