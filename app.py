@@ -159,7 +159,46 @@ def answer_unsicherheit(_text_norm: str) -> str:
         "Ein persönliches Beratungsgespräch oder ein kostenloses Probetraining ist dafür ideal.\n\n"
         f"{cta_short()}"
     )
+def answer_facilities(_t: str) -> str:
+    return (
+        "Gern – bei uns gibt es:\n\n"
+        "• Duschen\n"
+        "• Umkleiden\n"
+        "• Spinde/Schließfächer\n"
+        "• Getränke (vor Ort verfügbar)\n\n"
+        "Wenn Sie möchten, können Sie das alles bei einem persönlichen Beratungsgespräch oder einem kostenlosen Probetraining in Ruhe kennenlernen.\n\n"
+        f"{cta_short()}"
+    )
 
+def answer_wellness(_t: str) -> str:
+    return (
+        "Gern – bei uns gibt es Wellness-Angebote wie:\n\n"
+        "• Infrarot\n"
+        "• Massagesessel\n\n"
+        "Wenn Sie möchten, erklären wir Ihnen im persönlichen Beratungsgespräch oder beim kostenlosen Probetraining, wie Sie das sinnvoll nutzen können.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_payment(_t: str) -> str:
+    return (
+        "Hinweis zur Zahlung: Aktuell bieten wir keine Kartenzahlung an.\n\n"
+        "Wenn Sie dazu Fragen haben oder ein kostenloses Probetraining / Beratungsgespräch vereinbaren möchten, melden Sie sich am besten kurz telefonisch.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_age(_t: str) -> str:
+    return (
+        "Zum Mindestalter: Das ist bei uns nach Absprache möglich.\n\n"
+        "Am besten klären wir das kurz telefonisch – dann können wir direkt sagen, was in Ihrem Fall passt.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_accessibility(_t: str) -> str:
+    return (
+        "Hinweis zur Barrierefreiheit: Aktuell ist das Studio nicht barrierefrei.\n\n"
+        "Wenn Sie mir kurz sagen, was genau Sie benötigen (z. B. Stufen, Zugang, Begleitung), klären wir das gern telefonisch und finden eine passende Lösung.\n\n"
+        f"{cta_short()}"
+    )
 def answer_orientierung(_text_norm: str) -> str:
     return (
         "Das geht vielen so – und ist überhaupt kein Problem.\n\n"
@@ -278,6 +317,130 @@ INTENTS = [
             r"wie viel", r"wieviel", r"monat", r"monatlich", r"pro monat", r"euro", r"€"
         ],
         "handler": answer_preise,
+        # =========================
+# INTENTS – ERWEITERUNG
+# (Einfügen in Ihre INTENTS-Liste)
+# =========================
+
+{
+    "name": "duschen_umkleide_spinde_getraenke",
+    "patterns": [
+        # Duschen
+        r"\bdusch(e|en)\b", r"\bduschen vorhanden\b", r"\bgibt es duschen\b", r"\bduschmoglichkeit\b", r"\bduschmöglichkeit\b",
+        r"\bduschraum\b", r"\bmit dusche\b",
+        # Umkleide
+        r"\bumkleide\b", r"\bumkleiden\b", r"\bumkleideraum\b", r"\bkabine\b", r"\bumziehen\b", r"\bwo umziehen\b",
+        # Spinde / Schließfächer
+        r"\bspind(e)?\b", r"\bschliessfach\b", r"\bschließfach\b", r"\bschliessfaecher\b", r"\bschließfächer\b",
+        r"\bspindschloss\b", r"\babschliessbar\b", r"\babschließbar\b", r"\bwerte wegschliessen\b", r"\bwerte wegschließen\b",
+        # Getränke
+        r"\bgetrank(e)?\b", r"\bgetränk(e)?\b", r"\bwasser\b", r"\btrinken\b", r"\bgetrankeautomat\b", r"\bgetränkeautomat\b",
+        r"\bflasche auffullen\b", r"\bflasche auffüllen\b", r"\bwasserstation\b", r"\bdrink\b",
+        # Kombifragen kurz
+        r"\bdusche und spind\b", r"\bumkleide und dusche\b", r"\bspind und dusche\b",
+    ],
+    "handler": answer_facilities,
+},
+
+{
+    "name": "wellness_infrarot_massagesessel",
+    "patterns": [
+        r"\bwellness\b", r"\binfrarot\b", r"\binfrarotkabine\b", r"\bwaermekabine\b", r"\bwärmekabine\b",
+        r"\bsauna\b", r"\b(keine )?sauna\b",  # falls jemand fragt -> neutral trotzdem zu infrarot/massage
+        r"\bmassage\b", r"\bmassagesessel\b", r"\bmassage chair\b", r"\bmassagestuhl\b",
+        r"\bentspann(en|ung)\b", r"\bregeneration\b", r"\brecovery\b", r"\berholen\b",
+        r"\bwie funktioniert infrarot\b", r"\bwie funktioniert der massagesessel\b",
+    ],
+    "handler": answer_wellness,
+},
+
+{
+    "name": "zahlung_kartenzahlung",
+    "patterns": [
+        r"\bkartenzahlung\b", r"\bkarte\b", r"\bec\b", r"\bgirocard\b", r"\bvisa\b", r"\bmastercard\b",
+        r"\bapple pay\b", r"\bgoogle pay\b", r"\bkontaktlos\b", r"\b(nur )?bar\b", r"\bbarzahlung\b",
+        r"\bkann ich mit karte zahlen\b", r"\bkann man mit karte zahlen\b", r"\bzahlungsmoglichkeiten\b", r"\bzahlungsmöglichkeiten\b",
+    ],
+    "handler": answer_payment,
+},
+
+{
+    "name": "mindestalter_nach_absprache",
+    "patterns": [
+        r"\bmindestalter\b", r"\bab wieviel jahren\b", r"\bab wie viel jahren\b", r"\bab wann\b",
+        r"\bjugendliche\b", r"\bjugend\b", r"\bkind\b", r"\bkinder\b",
+        r"\b16\b", r"\b15\b", r"\b14\b", r"\b17\b", r"\b18\b",  # falls Nutzer nur Zahl schreibt
+        r"\bdarf ich als schuler\b", r"\bdarf ich als schüler\b", r"\bazubi\b", r"\bschuler\b", r"\bschüler\b",
+    ],
+    "handler": answer_age,
+},
+
+{
+    "name": "barrierefreiheit",
+    "patterns": [
+        r"\bbarrierefrei\b", r"\brollstuhl\b", r"\brolli\b", r"\baufzug\b", r"\bstufen\b", r"\btreppe\b",
+        r"\bbehindertengerecht\b", r"\bzugaenglich\b", r"\zugänglich\b", r"\bebenerdig\b",
+    ],
+    "handler": answer_accessibility,
+},
+
+# --- Komfort: Ablauf / Mitbringen / Anmeldung (sehr häufig) ---
+{
+    "name": "ablauf_probetraining",
+    "patterns": [
+        r"\bablauf\b", r"\bwie laeuft\b", r"\bwie läuft\b", r"\bwie funktioniert probetraining\b",
+        r"\bwie ist probetraining\b", r"\bwas passiert im probetraining\b", r"\bersttermin\b",
+        r"\beinfuehrung\b", r"\beinführung\b", r"\beinweisung\b", r"\btrainer zeigt\b",
+    ],
+    "handler": lambda _t: (
+        "Gern: Im Probetraining lernen Sie das Studio in Ruhe kennen und wir schauen gemeinsam, was zu Ihren Zielen passt.\n\n"
+        f"{probetraining_block()}\n\n"
+        "Für die Anmeldung melden Sie sich am besten kurz telefonisch.\n\n"
+        f"{cta_short()}"
+    ),
+},
+
+{
+    "name": "mitbringen_probetraining",
+    "patterns": [
+        r"was (muss|soll) ich mitbringen", r"\bmitbringen\b", r"\bhandtuch\b", r"\bturnschuhe\b",
+        r"\bsportsachen\b", r"\bkleidung\b", r"\bwas brauche ich\b", r"\bwas mitnehmen\b",
+        r"\btrainingsschuhe\b", r"\bsaubere schuhe\b", r"\bgetrank\b", r"\bgetränk\b",
+    ],
+    "handler": lambda _t: (
+        "Für ein Probetraining reichen in der Regel bequeme Sportsachen, saubere Hallenschuhe und ein Handtuch. Etwas zu trinken ist ebenfalls sinnvoll.\n\n"
+        "Wenn Sie möchten, können Sie direkt ein persönliches Beratungsgespräch oder ein kostenloses Probetraining vereinbaren.\n\n"
+        f"{cta_short()}"
+    ),
+},
+
+{
+    "name": "anmeldung_termin",
+    "patterns": [
+        r"\banmelden\b", r"\banmeldung\b", r"\btermin\b", r"\bbuchen\b", r"\breservier(en|ung)\b",
+        r"\bprobetraining anmelden\b", r"\bwie anmelden\b", r"\bwie buche\b", r"\bwie reserviere\b",
+        r"\bberatungstermin\b", r"\bberatung\b", r"\bberatungsgespraech\b", r"\bberatungsgespräch\b",
+    ],
+    "handler": lambda _t: (
+        "Gern – am einfachsten vereinbaren Sie ein persönliches Beratungsgespräch oder ein kostenloses Probetraining telefonisch.\n\n"
+        f"{cta_short()}"
+    ),
+},
+
+# --- Training/Alltag: Auslastung, Uhrzeiten, „wann ist es leer?“ (neutral) ---
+{
+    "name": "auslastung_stosszeiten",
+    "patterns": [
+        r"\bvoll\b", r"\bleer\b", r"\bauslastung\b", r"\bstosszeit(en)?\b", r"\bstoßzeit(en)?\b",
+        r"\bwann ist wenig los\b", r"\bwann ist es ruhig\b", r"\bwann ist es voll\b",
+        r"\bmorgens voll\b", r"\babends voll\b", r"\bmittags\b", r"\bfeierabend\b",
+    ],
+    "handler": lambda _t: (
+        "Das hängt oft vom Wochentag und der Uhrzeit ab. Wenn Sie mir sagen, wann Sie typischerweise trainieren möchten, kann ich es besser einordnen.\n\n"
+        "Gern können Sie auch ein kostenloses Probetraining/kurzes Beratungsgespräch vereinbaren – dann finden wir gemeinsam ein passendes Zeitfenster.\n\n"
+        f"{cta_short()}"
+    ),
+},
     },
     {
         "name": "einstieg_unsicherheit",
