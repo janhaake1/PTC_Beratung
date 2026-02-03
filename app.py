@@ -381,20 +381,15 @@ for msg in st.session_state.chat:
 
 user_input = st.chat_input("Ihre Frage (z.B. Probetraining, Kurse, Öffnungszeiten, Mitgliedschaft)")
 if user_input:
-    # 1) User sofort anzeigen
-    with st.chat_message("user"):
-        st.write(user_input)
-
-    # 2) In Verlauf speichern
     st.session_state.chat.append({"role": "user", "content": user_input})
 
-    # 3) Antwort bauen
-    intents = detect_intents(user_input)
-    answer = build_answer(user_input, intents)
+    answer = route_and_answer(user_input)
 
-    # 4) Assistant anzeigen + speichern
+    st.session_state.chat.append({"role": "assistant", "content": answer})
+
     with st.chat_message("assistant"):
         st.write(answer)
+
 
     st.session_state.chat.append({"role": "assistant", "content": answer})
 
