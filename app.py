@@ -8,6 +8,7 @@ from typing import Optional, List, Dict
 
 import streamlit as st
 
+
 # =========================================================
 # PTC – STAMMDATEN
 # =========================================================
@@ -63,6 +64,7 @@ FEATURES = [
     "Wellness (Infrarot & Massagesessel)",
     "Duschen, Umkleiden & Spinde/Schließfächer",
 ]
+
 
 # =========================================================
 # Helfer: Textbausteine
@@ -179,7 +181,6 @@ def _save_global_stats(data: Dict[str, object]) -> None:
 
 @st.cache_resource
 def get_global_stats_store() -> Dict[str, object]:
-    # shared über Sessions (solange die App läuft)
     return {"lock": Lock(), "data": _load_global_stats()}
 
 
@@ -196,6 +197,60 @@ def inc_global_fallback() -> None:
     with store["lock"]:
         store["data"]["fallback"] = int(store["data"].get("fallback", 0)) + 1
         _save_global_stats(store["data"])
+
+
+# =========================================================
+# LOGGING – ALLE FRAGEN (global)
+# =========================================================
+QUESTIONS_LOG = "ptc_questions_log.jsonl"
+
+
+def sanitize_for_log(text: str) -> str:
+    """
+    Minimales Hardening:
+    - Länge begrenzen (verhindert Abuse)
+    - offensichtliche Emails/Telefonnummern grob maskieren
+    """
+    t = (text or "").strip()
+    t = t[:800]  # Limit
+    t = re.sub(r"[\w\.-]+@[\w\.-]+\.\w+", "[email]", t)
+    t = re.sub(r"\b(\+?\d[\d\s\-\/]{7,}\d)\b", "[telefon]", t)
+    return t
+
+
+@st.cache_resource
+def get_log_lock() -> Lock:
+    return Lock()
+
+
+def log_question(raw_text: str, intent: str, goal: Optional[str]) -> None:
+    entry = {
+        "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "intent": intent,
+        "goal": goal,
+        "text": sanitize_for_log(raw_text),
+    }
+    lock = get_log_lock()
+    with lock:
+        with open(QUESTIONS_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def read_questions_log(limit: int = 200) -> List[Dict[str, object]]:
+    if not os.path.exists(QUESTIONS_LOG):
+        return []
+    rows: List[Dict[str, object]] = []
+    with open(QUESTIONS_LOG, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+    # letzte zuerst
+    return rows[-limit:][::-1]
 
 
 # =========================================================
@@ -506,33 +561,40 @@ INTENTS: List[Dict[str, object]] = [
 
 
 def route_and_answer(user_text: str) -> str:
-    t = normalize(user_text)
+    t_norm = normalize(user_text)
 
-    g = infer_goal(t)
+    g = infer_goal(t_norm)
     if g:
         set_goal(g)
 
+    # Intent finden
     for intent in INTENTS:
         patterns = intent.get("patterns", [])
-        if isinstance(patterns, list) and matches_any(t, patterns):
-            name = intent.get("name", "unknown")
+        if isinstance(patterns, list) and matches_any(t_norm, patterns):
+            name = str(intent.get("name", "unknown"))
 
             # Session-Stats
             stats = st.session_state.stats["intents"]
             stats[name] = stats.get(name, 0) + 1
 
-            # Global-Stats (alle Nutzer)
+            # Global-Stats
             inc_global_intent(name)
+
+            # ALLE FRAGEN loggen (mit Intent)
+            log_question(raw_text=user_text, intent=name, goal=get_goal())
 
             handler = intent.get("handler")
             if callable(handler):
-                return handler(t)
+                return handler(t_norm)
 
-    # Session-Fallback
+    # Fallback
     st.session_state.stats["fallback"] += 1
-    # Global-Fallback
     inc_global_fallback()
-    return answer_default(t)
+
+    # ALLE FRAGEN loggen (Fallback)
+    log_question(raw_text=user_text, intent="fallback", goal=get_goal())
+
+    return answer_default(t_norm)
 
 
 # =========================================================
@@ -544,7 +606,6 @@ st.set_page_config(page_title="PTC Online-Beratung", page_icon="💬", layout="c
 st.markdown("""
 <style>
 .block-container { max-width: 980px; padding-top: 1.2rem; padding-bottom: 2.2rem; }
-
 header[data-testid="stHeader"] { display: none; }
 div[data-testid="stToolbar"] { display: none; }
 footer { display: none; }
@@ -627,47 +688,66 @@ with st.container(border=True):
         if g:
             st.info(f"Merke ich mir: Ziel = {g}")
 
-# --- Session-Stats (optional intern) ---
-with st.expander("📊 Interne Statistik (Session)", expanded=False):
-    stats = st.session_state.stats
+# =========================================================
+# ADMIN-BEREICH (nur über ?admin=1)
+# =========================================================
+admin = st.query_params.get("admin") == "1"
+if admin:
+    with st.expander("📈 Gesamt-Statistik (alle Nutzer) – Admin", expanded=True):
+        store = get_global_stats_store()
+        data = store["data"]
 
-    if stats["intents"]:
-        st.write("**Intent-Treffer (Session):**")
-        for k, v in sorted(stats["intents"].items(), key=lambda x: x[1], reverse=True):
-            st.write(f"• {k}: {v}")
-    else:
-        st.write("Noch keine Daten.")
+        intents = data.get("intents", {})
+        fallback = data.get("fallback", 0)
+        updated_at = data.get("updated_at")
 
-    st.write("---")
-    st.write(f"❓ Fallback (Session): {stats['fallback']}")
+        if intents:
+            st.write("**Top-Intents (gesamt):**")
+            for k, v in sorted(intents.items(), key=lambda x: x[1], reverse=True):
+                st.write(f"• {k}: {v}")
+        else:
+            st.write("Noch keine Daten.")
 
-# --- Global-Stats (alle Nutzer) ---
-with st.expander("📈 Gesamt-Statistik (alle Nutzer)", expanded=False):
-    store = get_global_stats_store()
-    data = store["data"]
+        st.write("---")
+        st.write(f"❓ Fallback (gesamt): {fallback}")
+        if updated_at:
+            st.caption(f"Letztes Update: {updated_at}")
 
-    intents = data.get("intents", {})
-    fallback = data.get("fallback", 0)
-    updated_at = data.get("updated_at")
+        st.download_button(
+            "📥 Gesamt-Stats als JSON",
+            data=json.dumps(data, ensure_ascii=False, indent=2),
+            file_name="ptc_global_stats.json",
+            mime="application/json",
+        )
 
-    if intents:
-        st.write("**Top-Intents (gesamt):**")
-        for k, v in sorted(intents.items(), key=lambda x: x[1], reverse=True):
-            st.write(f"• {k}: {v}")
-    else:
-        st.write("Noch keine Daten.")
+    with st.expander("🧾 Fragen-Log (alle Anfragen) – Admin", expanded=True):
+        rows = read_questions_log(limit=300)
+        if not rows:
+            st.write("Noch keine geloggten Fragen.")
+        else:
+            st.caption("Neueste Einträge zuerst. Emails/Telefonnummern werden im Log grob maskiert.")
+            for r in rows:
+                ts = r.get("ts", "")
+                intent = r.get("intent", "")
+                goal = r.get("goal", None)
+                text = r.get("text", "")
+                label = f"{ts} · intent={intent}"
+                if goal:
+                    label += f" · goal={goal}"
+                st.write(f"**{label}**")
+                st.write(text)
+                st.write("---")
 
-    st.write("---")
-    st.write(f"❓ Fallback (gesamt): {fallback}")
-    if updated_at:
-        st.caption(f"Letztes Update: {updated_at}")
-
-    st.download_button(
-        "📥 Gesamt-Stats als JSON",
-        data=json.dumps(data, ensure_ascii=False, indent=2),
-        file_name="ptc_global_stats.json",
-        mime="application/json",
-    )
+        # Download des kompletten Logs
+        if os.path.exists(QUESTIONS_LOG):
+            with open(QUESTIONS_LOG, "r", encoding="utf-8") as f:
+                log_data = f.read()
+            st.download_button(
+                "📥 Fragen-Log als JSONL",
+                data=log_data,
+                file_name="ptc_questions_log.jsonl",
+                mime="application/jsonl",
+            )
 
 # Chat-Verlauf
 for msg in st.session_state.chat:
