@@ -479,13 +479,69 @@ def route_and_answer(user_text: str) -> str:
 # =========================================================
 # STREAMLIT UI
 # =========================================================
-st.set_page_config(page_title="PTC Online-Beratung", page_icon="💬")
+st.set_page_config(page_title="PTC Online-Beratung", page_icon="💬", layout="centered")
 
-st.title("💬 Online-Beratung – PTC Fitnessstudio Hildesheim")
-st.caption(
-    "Guten Tag, ich bin der digitale Beratungsassistent des PTC Fitnessstudios Hildesheim. "
-    "Wie kann ich Ihnen helfen?"
-)
+# --- Modern App Look (PTC-Rot) ---
+st.markdown("""
+<style>
+/* Layout */
+.block-container { max-width: 980px; padding-top: 1.2rem; padding-bottom: 2.2rem; }
+
+/* Streamlit-Chrome minimieren */
+header[data-testid="stHeader"] { display: none; }
+div[data-testid="stToolbar"] { display: none; }
+footer { display: none; }
+
+/* Moderne Card-Optik für Container(border=True) */
+div[data-testid="stVerticalBlockBorderWrapper"]{
+  background: #ffffff;
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 18px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 25px rgba(0,0,0,.04);
+}
+
+/* Buttons/Links etwas „appiger“ */
+.stButton button, .stLinkButton a{
+  border-radius: 14px !important;
+  padding: 0.65rem 1rem !important;
+  font-weight: 600 !important;
+}
+
+/* Inputs runder */
+div[data-baseweb="input"] input{
+  border-radius: 14px !important;
+}
+
+/* Chat-Bubbles runder */
+[data-testid="stChatMessage"]{
+  border-radius: 18px;
+  padding: 6px 2px;
+}
+
+/* Akzentlinie */
+.ptc-accent {
+  height: 4px;
+  width: 64px;
+  background: #b22222;
+  border-radius: 999px;
+  margin: 8px 0 14px 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# --- Moderner Header ---
+st.markdown(f"""
+<div style="display:flex; flex-direction:column; gap:6px; margin-bottom: 8px;">
+  <div style="font-size:28px; font-weight:800; letter-spacing:-0.02em;">
+    Online-Beratung
+  </div>
+  <div style="font-size:14px; color:#555;">
+    {STUDIO["name"]} · Schnell Antworten zu Probetraining, Kursen, Öffnungszeiten & Mitgliedschaft
+  </div>
+  <div class="ptc-accent"></div>
+</div>
+""", unsafe_allow_html=True)
 
 with st.expander("Datenschutz-Hinweis", expanded=False):
     st.write(
@@ -500,22 +556,24 @@ if "chat" not in st.session_state:
 init_memory()
 init_stats()
 
-col1, col2, col3 = st.columns([1, 1, 2])
+# --- Actionbar als Card ---
+with st.container(border=True):
+    col1, col2, col3 = st.columns([1, 1, 2])
 
-with col1:
-    if st.button("Neues Gespräch"):
-        st.session_state.chat = []
-        st.session_state.memory = {"goal": None}
-        st.session_state.stats = {"intents": {}, "fallback": 0}
-        st.rerun()
+    with col1:
+        if st.button("Neues Gespräch"):
+            st.session_state.chat = []
+            st.session_state.memory = {"goal": None}
+            st.session_state.stats = {"intents": {}, "fallback": 0}
+            st.rerun()
 
-with col2:
-    st.link_button("📞 Anrufen", STUDIO["phone_tel"])
+    with col2:
+        st.link_button("📞 Anrufen", STUDIO["phone_tel"])
 
-with col3:
-    g = get_goal()
-    if g:
-        st.info(f"Merke ich mir: Ziel = {g}")
+    with col3:
+        g = get_goal()
+        if g:
+            st.info(f"Merke ich mir: Ziel = {g}")
 
 with st.expander("📊 Interne Statistik (nur intern)", expanded=False):
     stats = st.session_state.stats
@@ -530,10 +588,12 @@ with st.expander("📊 Interne Statistik (nur intern)", expanded=False):
     st.write("---")
     st.write(f"❓ Fallback (nicht erkannt): {stats['fallback']}")
 
+# Chat-Verlauf
 for msg in st.session_state.chat:
     with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
         st.write(msg["content"])
 
+# Input
 user_input = st.chat_input("Ihre Frage (z.B. Probetraining, Kurse, Öffnungszeiten, Mitgliedschaft)")
 if user_input:
     st.session_state.chat.append({"role": "user", "content": user_input})
