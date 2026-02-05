@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Callable, Tuple
 
 import streamlit as st
 
@@ -106,15 +106,18 @@ def normalize(text: str) -> str:
     return text
 
 
-def matches_any(text: str, patterns: List[str]) -> bool:
+def count_matches(text: str, patterns: List[str]) -> int:
+    """Zählt, wie viele Pattern in text matchen (für robustes Scoring)."""
+    hits = 0
     for p in patterns:
         try:
             if re.search(p, text):
-                return True
+                hits += 1
         except re.error as e:
             st.error(f"Regex-Fehler im Pattern:\n{p}\n\n{e}")
-            return False
-    return False
+            # Bei Regex-Fehler nicht crashen – Pattern einfach ignorieren
+            continue
+    return hits
 
 
 # =========================================================
@@ -150,16 +153,16 @@ def init_stats() -> None:
 # Ziel-Erkennung
 # =========================================================
 GOAL_PATTERNS = [
-    ("abnehmen", [r"\babnehmen\b", r"\bgewicht\b", r"\bfett\b", r"\bfigur\b", r"\bkalorien\b"]),
-    ("muskelaufbau", [r"\bmuskel\b", r"\bkraft\b", r"\baufbau\b", r"\bhypertroph\b"]),
-    ("rücken stärken", [r"\bruck(en)?\b", r"\bhaltung\b", r"\bverspann"]),
+    ("abnehmen", [r"\babnehmen\b", r"\bgewicht\b", r"\bfett\b", r"\bfigur\b", r"\bkalorien\b", r"\bdiae?t\b"]),
+    ("muskelaufbau", [r"\bmuskel(n)?\b", r"\bkraft\b", r"\baufbau\b", r"\bhypertroph\b", r"\bmasse\b"]),
+    ("ruecken staerken", [r"\bruck(en)?\b", r"\bhaltung\b", r"\bverspann"]),
     ("allgemeine fitness", [r"\bfitter\b", r"\bausdauer\b", r"\bkondition\b", r"\bfit\b", r"\bgesund(heit)?\b"]),
 ]
 
 
 def infer_goal(text_norm: str) -> Optional[str]:
     for goal, pats in GOAL_PATTERNS:
-        if matches_any(text_norm, pats):
+        if count_matches(text_norm, pats) > 0:
             return goal
     return None
 
@@ -169,7 +172,7 @@ def recommend_for_goal(goal: str) -> List[str]:
         return ["Jumping", "Bauch, Beine, Po", "Fitness-Dance"]
     if goal == "muskelaufbau":
         return ["Freihantelbereich (Technik & Progression mit Betreuung)", "Körperanalyse zur Verlaufskontrolle"]
-    if goal == "rücken stärken":
+    if goal == "ruecken staerken":
         return ["Vibrationstraining (ruhiger Einstieg)", "Geräte-Training mit Fokus auf saubere Ausführung (angepasst)"]
     if goal == "allgemeine fitness":
         return ["Fitness-Dance", "Jumping", "Vibrationstraining"]
@@ -179,6 +182,30 @@ def recommend_for_goal(goal: str) -> List[str]:
 # =========================================================
 # Antwort-Handler
 # =========================================================
+def answer_greeting(_t: str) -> str:
+    return (
+        f"Guten Tag! Ich bin der digitale Beratungsassistent vom {STUDIO['name']}.\n\n"
+        "Wobei kann ich Ihnen helfen – Probetraining/Beratung, Kurse, Öffnungszeiten/Anfahrt oder eher Trainingseinstieg?\n\n"
+        f"{cta_short()}"
+    )
+
+
+def answer_thanks(_t: str) -> str:
+    return (
+        "Sehr gern. 🙂\n\n"
+        "Wenn Sie möchten, können wir direkt den nächsten Schritt planen – z. B. ein kostenloses Probetraining oder ein kurzes Beratungsgespräch.\n\n"
+        f"{cta_short()}"
+    )
+
+
+def answer_goodbye(_t: str) -> str:
+    return (
+        "Sehr gern – ich wünsche Ihnen einen schönen Tag.\n\n"
+        "Wenn Sie später noch Fragen haben oder direkt ein Probetraining vereinbaren möchten, melden Sie sich gern telefonisch.\n\n"
+        f"{cta_short()}"
+    )
+
+
 def answer_unsicherheit(_t: str) -> str:
     return (
         "Das ist überhaupt kein Problem.\n\n"
@@ -216,6 +243,14 @@ def answer_preise(t: str) -> str:
     return "\n\n".join(parts)
 
 
+def answer_contract_general(_t: str) -> str:
+    return (
+        "Zu Vertrag/Laufzeit/Kündigung: Das hängt vom gewählten Modell ab.\n\n"
+        "Ich nenne hier keine konkreten Preise oder Konditionen – am besten klären wir das kurz persönlich, damit es wirklich zu Ihnen passt.\n\n"
+        f"{cta_short()}"
+    )
+
+
 def answer_medizin(_t: str) -> str:
     return (
         "Bei Beschwerden ist ein gut betreuter Einstieg besonders wichtig.\n\n"
@@ -238,6 +273,31 @@ def answer_infos(_t: str) -> str:
     )
 
 
+def answer_hours(_t: str) -> str:
+    return (
+        "Gern – unsere Öffnungszeiten sind:\n\n"
+        f"{STUDIO['opening_hours']}\n\n"
+        "Wenn Sie möchten, vereinbaren wir direkt ein kostenloses Probetraining.\n\n"
+        f"{cta_short()}"
+    )
+
+
+def answer_address(_t: str) -> str:
+    return (
+        f"Unsere Adresse:\n📍 {STUDIO['address']}\n\n"
+        f"🚗 Parken: {STUDIO['parking']}\n\n"
+        f"{cta_short()}"
+    )
+
+
+def answer_parking(_t: str) -> str:
+    return (
+        f"Ja – {STUDIO['parking']}\n\n"
+        "Wenn Sie möchten, können Sie direkt ein kostenloses Probetraining vereinbaren.\n\n"
+        f"{cta_short()}"
+    )
+
+
 def answer_probetraining(t: str) -> str:
     goal = infer_goal(t) or get_goal()
     if goal:
@@ -253,15 +313,6 @@ def answer_probetraining(t: str) -> str:
     return "\n\n".join(parts)
 
 
-def answer_features(_t: str) -> str:
-    return (
-        "Gern – hier ein Überblick über unsere Ausstattung/Angebote:\n\n"
-        "• " + "\n• ".join(FEATURES) + "\n\n"
-        "Wenn Sie möchten, können Sie das bei einem persönlichen Beratungsgespräch oder einem kostenlosen Probetraining in Ruhe kennenlernen.\n\n"
-        f"{cta_short()}"
-    )
-
-
 def answer_kurse(t: str) -> str:
     goal = infer_goal(t) or get_goal()
     if goal:
@@ -274,12 +325,22 @@ def answer_kurse(t: str) -> str:
     rec = recommend_for_goal(goal) if goal else []
     if rec:
         parts.append(f"{goal_phrase()}würden sich z. B. diese Optionen anbieten: " + ", ".join(rec) + ".")
+
     parts += [
         "Wenn Sie möchten, können Sie Kurse auch im Rahmen eines kostenlosen Probetrainings ausprobieren.",
         "Für die Anmeldung melden Sie sich am besten kurz telefonisch.",
         cta_short(),
     ]
     return "\n\n".join(parts)
+
+
+def answer_features(_t: str) -> str:
+    return (
+        "Gern – hier ein Überblick über unsere Ausstattung/Angebote:\n\n"
+        "• " + "\n• ".join(FEATURES) + "\n\n"
+        "Wenn Sie möchten, können Sie das bei einem persönlichen Beratungsgespräch oder einem kostenlosen Probetraining in Ruhe kennenlernen.\n\n"
+        f"{cta_short()}"
+    )
 
 
 def answer_facilities(_t: str) -> str:
@@ -328,6 +389,31 @@ def answer_accessibility(_t: str) -> str:
     )
 
 
+def answer_no_sauna(_t: str) -> str:
+    return (
+        "Eine Sauna haben wir aktuell nicht.\n\n"
+        "Wenn Sie Wellness suchen: Wir bieten Infrarot und einen Massagesessel – gern erkläre ich Ihnen das im Probetraining oder Beratungsgespräch.\n\n"
+        f"{cta_short()}"
+    )
+
+
+def answer_hygiene(_t: str) -> str:
+    return (
+        "Verständlich – Hygiene ist wichtig.\n\n"
+        "Wir achten auf eine gepflegte Trainingsumgebung. Wenn Sie möchten, können Sie sich beim kostenlosen Probetraining in Ruhe selbst ein Bild machen.\n\n"
+        f"{cta_short()}"
+    )
+
+
+def answer_trainer_support(_t: str) -> str:
+    return (
+        "Ja – bei uns steht persönliche Betreuung im Vordergrund.\n\n"
+        "Gerade am Anfang hilft das sehr: ruhiger Einstieg, Geräte-Einweisung und ein Plan, der zu Ihnen passt.\n\n"
+        "Am besten: kostenloses Probetraining oder kurzes Beratungsgespräch.\n\n"
+        f"{cta_short()}"
+    )
+
+
 def answer_default(_t: str) -> str:
     return (
         "Gern helfe ich Ihnen weiter. Geht es bei Ihnen eher um Probetraining/Beratung, Kurse, Öffnungszeiten/Anfahrt oder Mitgliedschaft?\n\n"
@@ -336,141 +422,178 @@ def answer_default(_t: str) -> str:
 
 
 # =========================================================
-# INTENTS (Reihenfolge = Priorität)
+# INTENT-DEFINITION (Priorität + Scoring)
 # =========================================================
-INTENTS: List[Dict[str, object]] = [
-    {
-        "name": "medizin_beschwerden",
-        "patterns": [
-            r"\bruckenschmerz(en)?\b", r"\bruck(en)?\b", r"\brücken\b", r"\brückenschmerz(en)?\b",
-            r"\bschmerz(en)?\b", r"\bbeschwerden\b", r"\bverletzung\b", r"\bbandscheibe\b",
-            r"\bphysio\b", r"\barzt\b", r"\boperation\b", r"\bkrankheit\b", r"\bblutdruck\b", r"\bherz\b",
-        ],
-        "handler": answer_medizin,
-    },
-    {
-        "name": "preise_kosten",
-        "patterns": [
-            r"\bpreis(e)?\b", r"\bkosten\b", r"\bbeitrag\b", r"\bmitglied(schaft)?\b", r"\babo\b",
-            r"\bvertrag\b", r"\btarif\b", r"wie viel", r"wieviel", r"monat", r"monatlich", r"pro monat",
-            r"euro", r"€",
-            r"\bkündigen\b", r"\bkuendigen\b", r"kündigungsfrist", r"kuendigungsfrist",
-            r"\bstudent\b", r"\bstudenten\b", r"\bazubi\b",
-        ],
-        "handler": answer_preise,
-    },
-    {
-        "name": "duschen_umkleide_spinde_getraenke",
-        "patterns": [
-            r"\bdusch(e|en)\b", r"\bduschen vorhanden\b", r"\bgibt es duschen\b", r"\bduschmoglichkeit\b", r"\bduschmöglichkeit\b",
-            r"\bumkleide\b", r"\bumkleiden\b", r"\bumziehen\b",
-            r"\bspind(e)?\b", r"\bschliessfach\b", r"\bschließfach\b", r"\bschliessfaecher\b", r"\bschließfächer\b",
-            r"\babschliessbar\b", r"\babschließbar\b",
-            r"\bgetrank(e)?\b", r"\bgetränk(e)?\b", r"\bwasser\b", r"\btrinken\b",
-        ],
-        "handler": answer_facilities,
-    },
-    {
-        "name": "wellness_infrarot_massagesessel",
-        "patterns": [
-            r"\bwellness\b", r"\binfrarot\b", r"\binfrarotkabine\b",
-            r"\bmassage\b", r"\bmassagesessel\b", r"\bmassagestuhl\b",
-        ],
-        "handler": answer_wellness,
-    },
-    {
-        "name": "zahlung_kartenzahlung",
-        "patterns": [
-            r"\bkartenzahlung\b", r"\bec\b", r"\bgirocard\b", r"\bvisa\b", r"\bmastercard\b",
-            r"\bapple pay\b", r"\bgoogle pay\b", r"\bkontaktlos\b", r"\b(nur )?bar\b",
-            r"zahlungsmoglichkeiten", r"zahlungsmöglichkeiten",
-        ],
-        "handler": answer_payment,
-    },
-    {
-        "name": "mindestalter_nach_absprache",
-        "patterns": [
-            r"\bmindestalter\b", r"ab wieviel jahren", r"ab wie viel jahren",
-            r"\bjugend\b", r"\bjugendliche\b", r"\bschüler\b", r"\bschueler\b", r"\bnach absprache\b",
-        ],
-        "handler": answer_age,
-    },
-    {
-        "name": "barrierefreiheit",
-        "patterns": [
-            r"\bbarrierefrei\b", r"\brollstuhl\b", r"\baufzug\b", r"\bstufen\b", r"\btreppe\b",
-        ],
-        "handler": answer_accessibility,
-    },
-    {
-        "name": "einstieg_unsicherheit",
-        "patterns": [
-            r"lange(r)? keinen sport", r"lange(r)? nicht trainiert", r"lange(r)? keinen sport gemacht",
-            r"unsportlich", r"anfanger", r"anfaenger", r"neuling", r"wieder anfangen", r"wieder starten", r"lange pause",
-        ],
-        "handler": answer_unsicherheit,
-    },
-    {
-        "name": "orientierung",
-        "patterns": [
-            r"weiß nicht wo ich anfangen soll", r"weiss nicht wo ich anfangen soll",
-            r"wo anfangen", r"wie anfangen", r"wie starte ich", r"keine ahnung", r"unsicher wie anfangen",
-        ],
-        "handler": answer_orientierung,
-    },
-    {
-        "name": "probetraining_beratung",
-        "patterns": [
-            r"\bprobetraining\b", r"\bprobe\b", r"\btesten\b", r"\bkennenlernen\b",
-            r"\bberatung\b", r"\bberatungsgespraech\b", r"\bberatungsgespräch\b",
-        ],
-        "handler": answer_probetraining,
-    },
-    {
-        "name": "infos_anfahrt_parken_zeiten",
-        "patterns": [
-            r"\boffnungszeit(en)?\b", r"\böffnungszeit(en)?\b", r"\bgeoffnet\b", r"\bgeöffnet\b",
-            r"\badresse\b", r"\banfahrt\b", r"\bwo\b", r"\bparken\b", r"\bparkplatz\b", r"\bsonntag\b", r"\bsamstag\b",
-        ],
-        "handler": answer_infos,
-    },
-    {
-        "name": "kurse",
-        "patterns": [
-            r"\bkurse?\b", r"\bjumping\b", r"\bfitt?ness[- ]dance\b", r"\bbauch\b", r"\bbeine\b", r"\bpo\b",
-            r"\bvibration\b", r"\bplattenkurs\b",
-        ],
-        "handler": answer_kurse,
-    },
-    {
-        "name": "ausstattung",
-        "patterns": [
-            r"\bausstattung\b", r"\bgera(te|ete)\b", r"\bgeräte\b", r"\bmaschinen\b", r"\bfrei?hantel\b",
-            r"\bkorperanalyse\b", r"\bkörperanalyse\b", r"\bvibration\b", r"\bwellness\b", r"\binfrarot\b", r"\bmassagesessel\b",
-        ],
-        "handler": answer_features,
-    },
+Handler = Callable[[str], str]
+
+
+class Intent(Tuple[str, int, List[str], Handler]):
+    """
+    (name, priority, patterns, handler)
+
+    priority: kleiner = wichtiger
+    scoring: wie viele patterns matchen -> höhere Trefferzahl gewinnt
+    """
+
+
+def mk_intent(name: str, priority: int, patterns: List[str], handler: Handler) -> Dict[str, object]:
+    return {"name": name, "priority": priority, "patterns": patterns, "handler": handler}
+
+
+# --- Pattern-Bausteine (bewusst NICHT zu generisch) ---
+P_HELLO = [r"\bhallo\b", r"\bhi\b", r"\bhey\b", r"\bguten tag\b", r"\bmoin\b", r"\bservus\b"]
+P_THANKS = [r"\bdanke\b", r"\bvielen dank\b", r"\bdankesch(oe|o)n\b", r"\bthx\b"]
+P_BYE = [r"\btsch(u|ü)ss\b", r"\bciao\b", r"\bauf wiedersehen\b", r"\bbis dann\b", r"\bbye\b"]
+
+# Sensibel/No-Go
+P_MED = [
+    r"\bschmerz(en)?\b", r"\bbeschwerden\b", r"\bverletzung\b", r"\bbandscheibe\b",
+    r"\bphysio\b", r"\barzt\b", r"\boperation\b", r"\bkrankheit\b",
+    r"\bblutdruck\b", r"\bherz\b", r"\bkreislauf\b", r"\bschwindel\b",
+    r"\bknie\b", r"\bschulter\b", r"\bh(ue|u)fte\b", r"\bnacken\b"
+]
+P_PRICE = [
+    r"\bpreis(e)?\b", r"\bkosten\b", r"\bbeitrag\b", r"\bmitglied(schaft)?\b", r"\babo\b",
+    r"\btarif\b", r"\bangebot\b.*\bpreis\b",
+    r"\bmonat(lich)?\b", r"\bpro monat\b", r"\beuro\b", r"€",
+]
+P_CONTRACT = [
+    r"\bvertrag\b", r"\blaufzeit\b", r"\bk(ue|ü)ndigen\b", r"\bk(ue|ü)ndigungsfrist\b"
+]
+P_STUDENTS = [r"\bstudent(en)?\b", r"\bazubi\b", r"\bsch(ue|ü)ler\b", r"\brabatt\b", r"\berm(ae|ä)ssigung\b"]
+
+# Conversion
+P_TRIAL = [
+    r"\bprobetraining\b", r"\b(termin|vereinbaren|anmelden)\b.*\b(prob(e)?|training|beratung)\b",
+    r"\bberatung(sgespr(ae|ä)ch)?\b", r"\bkennenlernen\b", r"\btesten\b",
+]
+
+# Orga (hier bewusst ohne reines "\bwo\b")
+P_HOURS = [r"\b(o(e|ff)nungszeiten|offen|ge(o|ö)ffnet|zeiten)\b"]
+P_ADDRESS = [
+    r"\badresse\b", r"\banfahrt\b", r"\bstandort\b",
+    r"\bwo\b.*\b(studio|ihr|adresse|finde|seid)\b"
+]
+P_PARKING = [r"\bparken\b", r"\bparkplatz\b", r"\bkostenlos\b.*\bpark\b", r"\bpark\b.*\bkostenlos\b"]
+
+# Angebote
+P_COURSES = [
+    r"\bkurse?\b", r"\bkursplan\b", r"\bjumping\b", r"\btrampolin\b",
+    r"\bfitt?ness[- ]dance\b", r"\btanz\b",
+    r"\bbauch\b.*\bbeine\b.*\bpo\b", r"\bbb\s?p\b",
+    r"\bvibration(straining)?\b", r"\bgalileo\b", r"\bplattenkurs\b"
+]
+P_FEATURES = [
+    r"\bausstattung\b", r"\bger(ae|ä)te\b", r"\bmaschinen\b", r"\bfrei?hantel\b",
+    r"\bk(oe|ö)rperanalyse\b", r"\binbody\b"
+]
+P_FACILITIES = [
+    r"\bdusch(e|en)\b", r"\bumkleide(n)?\b", r"\bspind(e)?\b",
+    r"\bschlie(ss|ß)fach\b", r"\bgetr(ae|ä)nk(e)?\b", r"\bwasser\b"
+]
+P_WELLNESS = [r"\bwellness\b", r"\binfrarot(kabine)?\b", r"\bmassage(sessel|stuhl)?\b"]
+P_SAUNA = [r"\bsauna\b", r"\bdampfbad\b"]
+P_HYGIENE = [r"\bhygiene\b", r"\bsauber(keit)?\b", r"\bdesinf\b", r"\bkeime\b"]
+P_TRAINER = [r"\btrainer\b", r"\bbeta?reuung\b", r"\beinweisung\b", r"\btrainingsplan\b"]
+
+# Regeln
+P_PAYMENT = [
+    r"\bkartenzahlung\b", r"\bec\b", r"\bgirocard\b", r"\bvisa\b", r"\bmastercard\b",
+    r"\bapple pay\b", r"\bgoogle pay\b", r"\bkontaktlos\b", r"\b(nur )?bar\b",
+    r"\bzahlungsm(oe|o)glichkeiten\b"
+]
+P_AGE = [r"\bmindestalter\b", r"\bjugend(liche)?\b", r"\bab wie ?viel jahren\b", r"\bnach absprache\b"]
+P_ACCESS = [r"\bbarrierefrei\b", r"\brollstuhl\b", r"\baufzug\b", r"\bstufen\b", r"\btreppe\b"]
+
+# Einstieg
+P_UNCERTAIN = [
+    r"\blange(r)?\b.*\b(keinen sport|nicht trainiert|pause)\b",
+    r"\bunsportlich\b", r"\banf(ae|ä)nger\b", r"\bneuling\b",
+    r"\bwieder anfangen\b", r"\bwieder starten\b",
+]
+P_ORIENTATION = [
+    r"\b(weiss|weiß)\b.*\b(nicht|nich)\b.*\b(wo|wie)\b.*\b(anfangen|starten)\b",
+    r"\bwo anfangen\b", r"\bwie anfangen\b", r"\bwie starte ich\b", r"\bkeine ahnung\b",
 ]
 
 
+INTENTS: List[Dict[str, object]] = [
+    # 0) Smalltalk
+    mk_intent("smalltalk_greeting", 0, P_HELLO, answer_greeting),
+    mk_intent("smalltalk_thanks", 0, P_THANKS, answer_thanks),
+    mk_intent("smalltalk_goodbye", 0, P_BYE, answer_goodbye),
+
+    # 1) Sensibel / No-Go zuerst
+    mk_intent("sensible_medizin", 1, P_MED, answer_medizin),
+
+    # 2) Vertrag/Preis sehr früh (keine konkreten Zahlen)
+    mk_intent("vertrag_kuendigung", 2, P_CONTRACT, answer_contract_general),
+    mk_intent("preise_kosten", 2, P_PRICE + P_STUDENTS, answer_preise),
+
+    # 3) Conversion
+    mk_intent("conversion_probetraining", 3, P_TRIAL, answer_probetraining),
+
+    # 4) Orga (getrennt statt “alles in einem”)
+    mk_intent("orga_oeffnungszeiten", 4, P_HOURS, answer_hours),
+    mk_intent("orga_adresse", 4, P_ADDRESS, answer_address),
+    mk_intent("orga_parken", 4, P_PARKING, answer_parking),
+    mk_intent("orga_infos_allgemein", 5, [r"\binfo(s)?\b", r"\bkontakt\b", r"\btelefon\b", r"\bnummer\b"], answer_infos),
+
+    # 5) Angebote
+    mk_intent("kurse", 6, P_COURSES, answer_kurse),
+    mk_intent("ausstattung", 6, P_FEATURES, answer_features),
+    mk_intent("komfort_facilities", 6, P_FACILITIES, answer_facilities),
+    mk_intent("komfort_wellness", 6, P_WELLNESS, answer_wellness),
+    mk_intent("komfort_sauna", 6, P_SAUNA, answer_no_sauna),
+    mk_intent("komfort_hygiene", 6, P_HYGIENE, answer_hygiene),
+    mk_intent("betreuung_trainer", 6, P_TRAINER, answer_trainer_support),
+
+    # 6) Einstieg
+    mk_intent("einstieg_unsicherheit", 7, P_UNCERTAIN, answer_unsicherheit),
+    mk_intent("einstieg_orientierung", 7, P_ORIENTATION, answer_orientierung),
+
+    # 7) Regeln
+    mk_intent("regel_zahlung", 8, P_PAYMENT, answer_payment),
+    mk_intent("regel_alter", 8, P_AGE, answer_age),
+    mk_intent("regel_barrierefreiheit", 8, P_ACCESS, answer_accessibility),
+]
+
+
+# =========================================================
+# Routing: Best-Match (Score) + Priorität
+# =========================================================
 def route_and_answer(user_text: str) -> str:
     t = normalize(user_text)
 
+    # Goal memory
     g = infer_goal(t)
     if g:
         set_goal(g)
 
+    best = None  # (score, priority, name, handler)
+
     for intent in INTENTS:
-        patterns = intent.get("patterns", [])
-        if isinstance(patterns, list) and matches_any(t, patterns):
-            name = intent.get("name", "unknown")
+        patterns = intent["patterns"]
+        score = count_matches(t, patterns)
 
-            stats = st.session_state.stats["intents"]
-            stats[name] = stats.get(name, 0) + 1
+        if score <= 0:
+            continue
 
-            handler = intent.get("handler")
-            if callable(handler):
-                return handler(t)
+        name = intent["name"]
+        priority = int(intent["priority"])
+        handler = intent["handler"]
+
+        # Best Match: höherer score gewinnt; bei Gleichstand niedrigere priority
+        candidate = (score, -priority, name, handler)
+        if best is None or candidate > best:
+            best = candidate
+
+    if best is not None:
+        score, neg_prio, name, handler = best
+        stats = st.session_state.stats["intents"]
+        stats[name] = stats.get(name, 0) + 1
+        if callable(handler):
+            return handler(t)
 
     st.session_state.stats["fallback"] += 1
     return answer_default(t)
@@ -519,14 +642,12 @@ with col3:
 
 with st.expander("📊 Interne Statistik (nur intern)", expanded=False):
     stats = st.session_state.stats
-
     if stats["intents"]:
         st.write("**Intent-Treffer:**")
         for k, v in sorted(stats["intents"].items(), key=lambda x: x[1], reverse=True):
             st.write(f"• {k}: {v}")
     else:
         st.write("Noch keine Daten.")
-
     st.write("---")
     st.write(f"❓ Fallback (nicht erkannt): {stats['fallback']}")
 
@@ -537,10 +658,8 @@ for msg in st.session_state.chat:
 user_input = st.chat_input("Ihre Frage (z.B. Probetraining, Kurse, Öffnungszeiten, Mitgliedschaft)")
 if user_input:
     st.session_state.chat.append({"role": "user", "content": user_input})
-
     answer = route_and_answer(user_input)
     st.session_state.chat.append({"role": "assistant", "content": answer})
-
     st.rerun()
 
 st.markdown("---")
