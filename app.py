@@ -1,5 +1,9 @@
 import re
 import unicodedata
+import json
+import os
+from threading import Lock
+from datetime import datetime
 from typing import Optional, List, Dict
 
 import streamlit as st
@@ -144,6 +148,54 @@ def goal_phrase() -> str:
 def init_stats() -> None:
     if "stats" not in st.session_state:
         st.session_state.stats = {"intents": {}, "fallback": 0}
+
+
+# =========================================================
+# GLOBAL STATS (für alle Nutzer) – einfache Gesamtauswertung
+# =========================================================
+STATS_FILE = "ptc_global_stats.json"
+
+
+def _load_global_stats() -> Dict[str, object]:
+    if os.path.exists(STATS_FILE):
+        try:
+            with open(STATS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if "intents" not in data or "fallback" not in data:
+                raise ValueError("Invalid stats shape")
+            return data
+        except Exception:
+            pass
+    return {"intents": {}, "fallback": 0, "updated_at": None}
+
+
+def _save_global_stats(data: Dict[str, object]) -> None:
+    data["updated_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    tmp = STATS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, STATS_FILE)
+
+
+@st.cache_resource
+def get_global_stats_store() -> Dict[str, object]:
+    # shared über Sessions (solange die App läuft)
+    return {"lock": Lock(), "data": _load_global_stats()}
+
+
+def inc_global_intent(name: str) -> None:
+    store = get_global_stats_store()
+    with store["lock"]:
+        intents = store["data"]["intents"]
+        intents[name] = int(intents.get(name, 0)) + 1
+        _save_global_stats(store["data"])
+
+
+def inc_global_fallback() -> None:
+    store = get_global_stats_store()
+    with store["lock"]:
+        store["data"]["fallback"] = int(store["data"].get("fallback", 0)) + 1
+        _save_global_stats(store["data"])
 
 
 # =========================================================
@@ -465,14 +517,21 @@ def route_and_answer(user_text: str) -> str:
         if isinstance(patterns, list) and matches_any(t, patterns):
             name = intent.get("name", "unknown")
 
+            # Session-Stats
             stats = st.session_state.stats["intents"]
             stats[name] = stats.get(name, 0) + 1
+
+            # Global-Stats (alle Nutzer)
+            inc_global_intent(name)
 
             handler = intent.get("handler")
             if callable(handler):
                 return handler(t)
 
+    # Session-Fallback
     st.session_state.stats["fallback"] += 1
+    # Global-Fallback
+    inc_global_fallback()
     return answer_default(t)
 
 
@@ -484,15 +543,12 @@ st.set_page_config(page_title="PTC Online-Beratung", page_icon="💬", layout="c
 # --- Modern App Look (PTC-Rot) ---
 st.markdown("""
 <style>
-/* Layout */
 .block-container { max-width: 980px; padding-top: 1.2rem; padding-bottom: 2.2rem; }
 
-/* Streamlit-Chrome minimieren */
 header[data-testid="stHeader"] { display: none; }
 div[data-testid="stToolbar"] { display: none; }
 footer { display: none; }
 
-/* Moderne Card-Optik für Container(border=True) */
 div[data-testid="stVerticalBlockBorderWrapper"]{
   background: #ffffff;
   border: 1px solid rgba(0,0,0,.06);
@@ -501,25 +557,21 @@ div[data-testid="stVerticalBlockBorderWrapper"]{
   box-shadow: 0 10px 25px rgba(0,0,0,.04);
 }
 
-/* Buttons/Links etwas „appiger“ */
 .stButton button, .stLinkButton a{
   border-radius: 14px !important;
   padding: 0.65rem 1rem !important;
   font-weight: 600 !important;
 }
 
-/* Inputs runder */
 div[data-baseweb="input"] input{
   border-radius: 14px !important;
 }
 
-/* Chat-Bubbles runder */
 [data-testid="stChatMessage"]{
   border-radius: 18px;
   padding: 6px 2px;
 }
 
-/* Akzentlinie */
 .ptc-accent {
   height: 4px;
   width: 64px;
@@ -575,18 +627,47 @@ with st.container(border=True):
         if g:
             st.info(f"Merke ich mir: Ziel = {g}")
 
-with st.expander("📊 Interne Statistik (nur intern)", expanded=False):
+# --- Session-Stats (optional intern) ---
+with st.expander("📊 Interne Statistik (Session)", expanded=False):
     stats = st.session_state.stats
 
     if stats["intents"]:
-        st.write("**Intent-Treffer:**")
+        st.write("**Intent-Treffer (Session):**")
         for k, v in sorted(stats["intents"].items(), key=lambda x: x[1], reverse=True):
             st.write(f"• {k}: {v}")
     else:
         st.write("Noch keine Daten.")
 
     st.write("---")
-    st.write(f"❓ Fallback (nicht erkannt): {stats['fallback']}")
+    st.write(f"❓ Fallback (Session): {stats['fallback']}")
+
+# --- Global-Stats (alle Nutzer) ---
+with st.expander("📈 Gesamt-Statistik (alle Nutzer)", expanded=False):
+    store = get_global_stats_store()
+    data = store["data"]
+
+    intents = data.get("intents", {})
+    fallback = data.get("fallback", 0)
+    updated_at = data.get("updated_at")
+
+    if intents:
+        st.write("**Top-Intents (gesamt):**")
+        for k, v in sorted(intents.items(), key=lambda x: x[1], reverse=True):
+            st.write(f"• {k}: {v}")
+    else:
+        st.write("Noch keine Daten.")
+
+    st.write("---")
+    st.write(f"❓ Fallback (gesamt): {fallback}")
+    if updated_at:
+        st.caption(f"Letztes Update: {updated_at}")
+
+    st.download_button(
+        "📥 Gesamt-Stats als JSON",
+        data=json.dumps(data, ensure_ascii=False, indent=2),
+        file_name="ptc_global_stats.json",
+        mime="application/json",
+    )
 
 # Chat-Verlauf
 for msg in st.session_state.chat:
