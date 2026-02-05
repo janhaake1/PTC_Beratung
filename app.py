@@ -107,7 +107,6 @@ def matches_any(text: str, patterns: List[str]) -> bool:
             if re.search(p, text):
                 return True
         except re.error as e:
-            # App soll nicht crashen, sondern Fehler anzeigen
             st.error(f"Regex-Fehler im Pattern: {p}\n{e}")
     return False
 
@@ -127,6 +126,16 @@ def get_goal() -> Optional[str]:
 def goal_phrase() -> str:
     g = get_goal()
     return f"Da Ihr Ziel „{g}“ ist, " if g else ""
+
+# =========================================================
+# Analytics (Session)
+# =========================================================
+def init_stats():
+    if "stats" not in st.session_state:
+        st.session_state.stats = {
+            "intents": {},   # intent_name -> count
+            "fallback": 0,   # nicht erkannt
+        }
 
 # =========================================================
 # Ziel-Erkennung
@@ -234,6 +243,437 @@ def answer_kurse(t: str) -> str:
     goal = infer_goal(t) or get_goal()
     if goal:
         set_goal(goal)
+
+    parts = [
+        "Gern – hier unser aktueller Kursplan:",
+        course_plan_text(),
+    ]
+    rec = recommend_for_goal(goal) if goal else []
+    if rec:
+        parts.append(f"{goal_phrase()}würden sich z. B. diese Optionen anbieten: " + ", ".join(rec) + ".")
+    parts += [
+        "Wenn Sie möchten, können Sie Kurse auch im Rahmen eines kostenlosen Probetrainings ausprobieren.",
+        "Für die Anmeldung melden Sie sich am besten kurz telefonisch.",
+        cta_short(),
+    ]
+    return "\n\n".join(parts)
+
+def answer_facilities(_t: str) -> str:
+    return (
+        "Gern – bei uns gibt es:\n\n"
+        "• Duschen\n"
+        "• Umkleiden\n"
+        "• Spinde/Schließfächer\n"
+        "• Getränke (vor Ort verfügbar)\n\n"
+        "Wenn Sie möchten, können Sie das alles bei einem persönlichen Beratungsgespräch oder einem kostenlosen Probetraining in Ruhe kennenlernen.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_wellness(_t: str) -> str:
+    return (
+        "Gern – bei uns gibt es Wellness-Angebote wie:\n\n"
+        "• Infrarot\n"
+        "• Massagesessel\n\n"
+        "Wenn Sie möchten, erklären wir Ihnen im persönlichen Beratungsgespräch oder beim kostenlosen Probetraining, wie Sie das sinnvoll nutzen können.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_payment(_t: str) -> str:
+    return (
+        "Hinweis zur Zahlung: Aktuell bieten wir keine Kartenzahlung an.\n\n"
+        "Wenn Sie dazu Fragen haben oder ein kostenloses Probetraining / Beratungsgespräch vereinbaren möchten, melden Sie sich am besten kurz telefonisch.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_age(_t: str) -> str:
+    return (
+        "Zum Mindestalter: Das ist bei uns nach Absprache möglich.\n\n"
+        "Am besten klären wir das kurz telefonisch – dann können wir direkt sagen, was in Ihrem Fall passt.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_accessibility(_t: str) -> str:
+    return (
+        "Hinweis zur Barrierefreiheit: Aktuell ist das Studio nicht barrierefrei.\n\n"
+        "Wenn Sie mir kurz sagen, was genau Sie benötigen (z. B. Stufen, Zugang, Begleitung), klären wir das gern telefonisch und finden eine passende Lösung.\n\n"
+        f"{cta_short()}"
+    )
+
+def answer_default(_t: str) -> str:
+    return (
+        "Gern helfe ich Ihnen weiter. Geht es bei Ihnen eher um Probetraining/Beratung, Kurse, Öffnungszeiten/Anfahrt oder Mitgliedschaft?\n\n"
+        f"{cta_short()}"
+    )
+
+# =========================================================
+# INTENTS (Reihenfolge = Priorität)
+# =========================================================
+INTENTS: List[Dict[str, object]] = [
+    # --- Sicherheit zuerst ---
+    {
+        "name": "medizin_beschwerden",
+        "patterns": [
+            r"\bruckenschmerz(en)?\b", r"\bruck(en)?\b", r"\brücken\b", r"\brückenschmerz(en)?\b",
+            r"\bschmerz(en)?\b", r"\bbeschwerden\b", r"\bverletzung\b", r"\bbandscheibe\b",
+            r"\bphysio\b", r"\barzt\b", r"\boperation\b", r"\bkrankheit\b", r"\bblutdruck\b", r"\bherz\b",
+            r"\bmuskelkater\b", r"\bsteif\b", r"\bverhärtet\b",
+        ],
+        "handler": answer_medizin,
+    },
+
+    # --- Preise / Vertragliches (keine Zahlen) ---
+    {
+        "name": "preise_kosten",
+        "patterns": [
+            r"\bpreis(e)?\b", r"\bkosten\b", r"\bbeitrag\b", r"\bmitglied(schaft)?\b", r"\babo\b",
+            r"\bvertrag\b", r"\btarif\b", r"wie viel", r"wieviel", r"monat", r"monatlich", r"pro monat",
+            r"euro", r"€",
+            r"\bkündigen\b", r"\bkuendigen\b", r"vertrag beenden", r"kündigungsfrist", r"kuendigungsfrist",
+            r"\bstudent\b", r"\bstudenten\b", r"\bazubi\b", r"\bauszubildende\b",
+        ],
+        "handler": answer_preise,
+    },
+
+    # --- Facilities / Wellness / Zahlung / Alter / Barrierefreiheit ---
+    {
+        "name": "duschen_umkleide_spinde_getraenke",
+        "patterns": [
+            r"\bdusch(e|en)\b", r"\bduschen vorhanden\b", r"\bgibt es duschen\b", r"\bduschmoglichkeit\b", r"\bduschmöglichkeit\b",
+            r"\bduschraum\b", r"\bmit dusche\b", r"nach dem training duschen", r"duschen nach training",
+            r"\bumkleide\b", r"\bumkleiden\b", r"\bumkleideraum\b", r"\bkabine\b", r"\bumziehen\b", r"\bwo umziehen\b",
+            r"\bspind(e)?\b", r"\bschliessfach\b", r"\bschließfach\b", r"\bschliessfaecher\b", r"\bschließfächer\b",
+            r"\babschliessbar\b", r"\babschließbar\b", r"werte wegschliessen", r"werte wegschließen",
+            r"\bgetrank(e)?\b", r"\bgetränk(e)?\b", r"\bwasser\b", r"\btrinken\b", r"flasche auffuellen", r"flasche auffüllen",
+            r"\bdusche und spind\b", r"\bumkleide und dusche\b", r"\bspind und dusche\b",
+        ],
+        "handler": answer_facilities,
+    },
+    {
+        "name": "wellness_infrarot_massagesessel",
+        "patterns": [
+            r"\bwellness\b", r"\binfrarot\b", r"\binfrarotkabine\b", r"\bwaermekabine\b", r"\bwärmekabine\b",
+            r"\bmassage\b", r"\bmassagesessel\b", r"\bmassagestuhl\b",
+            r"nach dem training entspannen", r"regeneration nach training", r"locker werden",
+        ],
+        "handler": answer_wellness,
+    },
+    {
+        "name": "zahlung_kartenzahlung",
+        "patterns": [
+            r"\bkartenzahlung\b", r"\bkarte\b", r"\bec\b", r"\bgirocard\b", r"\bvisa\b", r"\bmastercard\b",
+            r"\bapple pay\b", r"\bgoogle pay\b", r"\bkontaktlos\b", r"\b(nur )?bar\b", r"\bbarzahlung\b",
+            r"kann ich mit karte zahlen", r"kann man mit karte zahlen", r"zahlungsmoglichkeiten", r"zahlungsmöglichkeiten",
+        ],
+        "handler": answer_payment,
+    },
+    {
+        "name": "mindestalter_nach_absprache",
+        "patterns": [
+            r"\bmindestalter\b", r"ab wieviel jahren", r"ab wie viel jahren", r"\bab wann\b",
+            r"\bjugendliche\b", r"\bjugend\b", r"\bkind\b", r"\bkinder\b",
+            r"\bdarf ich als schuler\b", r"\bdarf ich als schüler\b", r"\bazubi\b", r"\bschuler\b", r"\bschüler\b",
+            r"\bnach absprache\b",
+        ],
+        "handler": answer_age,
+    },
+    {
+        "name": "barrierefreiheit",
+        "patterns": [
+            r"\bbarrierefrei\b", r"\brollstuhl\b", r"\brolli\b", r"\baufzug\b", r"\bstufen\b", r"\btreppe\b",
+            r"\bbehindertengerecht\b", r"\b(zugaenglich|zugänglich)\b", r"\bebenerdig\b",
+        ],
+        "handler": answer_accessibility,
+    },
+
+    # --- Probetraining / Ablauf / Anmeldung / Mitbringen ---
+    {
+        "name": "probetraining_beratung",
+        "patterns": [
+            r"\bprobetraining\b", r"\bprobe\b", r"\btesten\b", r"\bkennenlernen\b",
+            r"\bberatung\b", r"\bberatungsgespraech\b", r"\bberatungsgespräch\b",
+            r"beratungstermin",
+        ],
+        "handler": answer_probetraining,
+    },
+    {
+        "name": "ablauf_probetraining",
+        "patterns": [
+            r"\bablauf\b", r"wie laeuft", r"wie läuft", r"wie funktioniert probetraining",
+            r"was passiert im probetraining", r"\bersttermin\b", r"einweisung", r"geräte erklärt",
+        ],
+        "handler": lambda _t: (
+            "Gern: Im Probetraining lernen Sie das Studio in Ruhe kennen und wir schauen gemeinsam, was zu Ihren Zielen passt.\n\n"
+            f"{probetraining_block()}\n\n"
+            "Für die Anmeldung melden Sie sich am besten kurz telefonisch.\n\n"
+            f"{cta_short()}"
+        ),
+    },
+    {
+        "name": "mitbringen_probetraining",
+        "patterns": [
+            r"was (muss|soll) ich mitbringen", r"\bmitbringen\b", r"\bhandtuch\b", r"\bturnschuhe\b",
+            r"\bsportsachen\b", r"\bkleidung\b", r"was brauche ich", r"was mitnehmen", r"dresscode",
+        ],
+        "handler": lambda _t: (
+            "Für ein Probetraining reichen in der Regel bequeme Sportsachen, saubere Hallenschuhe und ein Handtuch. "
+            "Etwas zu trinken ist ebenfalls sinnvoll.\n\n"
+            "Wenn Sie möchten, können Sie direkt ein persönliches Beratungsgespräch oder ein kostenloses Probetraining vereinbaren.\n\n"
+            f"{cta_short()}"
+        ),
+    },
+    {
+        "name": "anmeldung_termin",
+        "patterns": [
+            r"\banmelden\b", r"\banmeldung\b", r"\btermin\b", r"\bbuchen\b", r"\breservier(en|ung)\b",
+            r"wie anmelden", r"wie buche", r"wie reserviere", r"spontan", r"ohne termin", r"einfach vorbeikommen",
+        ],
+        "handler": lambda _t: (
+            "Gern – am einfachsten vereinbaren Sie ein persönliches Beratungsgespräch oder ein kostenloses Probetraining telefonisch.\n\n"
+            f"{cta_short()}"
+        ),
+    },
+
+    # --- Auslastung / Zeiten / Alltag ---
+    {
+        "name": "auslastung_stosszeiten",
+        "patterns": [
+            r"\bvoll\b", r"\bleer\b", r"\bauslastung\b", r"\bstosszeit(en)?\b", r"\bstoßzeit(en)?\b",
+            r"wann ist wenig los", r"wann ist es ruhig", r"wann ist es voll", r"feierabend", r"morgens", r"abends", r"mittags",
+        ],
+        "handler": lambda _t: (
+            "Das hängt oft vom Wochentag und der Uhrzeit ab. Wenn Sie mir sagen, wann Sie typischerweise trainieren möchten, kann ich es besser einordnen.\n\n"
+            "Gern können Sie auch ein kostenloses Probetraining/kurzes Beratungsgespräch vereinbaren – dann finden wir gemeinsam ein passendes Zeitfenster.\n\n"
+            f"{cta_short()}"
+        ),
+    },
+    {
+        "name": "infos_anfahrt_parken_zeiten",
+        "patterns": [
+            r"\boffnungszeit(en)?\b", r"\böffnungszeit(en)?\b", r"\bgeoffnet\b", r"\bgeöffnet\b",
+            r"\badresse\b", r"\banfahrt\b", r"\bwo seid ihr\b", r"\bwo genau\b", r"\bstandort\b",
+            r"\bparken\b", r"\bparkplatz\b", r"\bsonntag\b", r"\bsamstag\b", r"feiertag", r"weihnachten", r"ostern", r"silvester", r"neujahr",
+            r"kurz vor schluss", r"vor ladenschluss",
+        ],
+        "handler": answer_infos,
+    },
+    {
+        "name": "kontakt",
+        "patterns": [
+            r"\bkontakt\b", r"telefonnummer", r"\banrufen\b", r"telefonisch", r"wie erreiche ich euch",
+        ],
+        "handler": answer_infos,
+    },
+
+    # --- Kurse / Training ---
+    {
+        "name": "kurse",
+        "patterns": [
+            r"\bkurse?\b", r"\bjumping\b", r"\bjumping.*wann\b", r"\bwann.*jumping\b", r"\bzeiten.*jumping\b",
+            r"\bfitt?ness[- ]dance\b", r"fitness dance", r"\bbauch\b", r"\bbeine\b", r"\bpo\b",
+            r"\bvibration\b", r"\bplattenkurs\b",
+        ],
+        "handler": answer_kurse,
+    },
+    {
+        "name": "trainingsplan",
+        "patterns": [
+            r"trainingsplan", r"plan erstellen", r"trainingsprogramm", r"individueller plan", r"plan bekommen",
+        ],
+        "handler": answer_probetraining,
+    },
+    {
+        "name": "personal_training",
+        "patterns": [
+            r"personal training", r"einzelbetreuung", r"1 ?zu ?1", r"trainer allein", r"privates training",
+        ],
+        "handler": answer_probetraining,
+    },
+    {
+        "name": "freies_training",
+        "patterns": [
+            r"frei trainieren", r"alleine trainieren", r"ohne kurs", r"selbstständig trainieren",
+        ],
+        "handler": answer_features,
+    },
+    {
+        "name": "kurse_pflicht",
+        "patterns": [
+            r"sind kurse pflicht", r"muss ich kurse machen", r"ohne kurse möglich",
+        ],
+        "handler": answer_features,
+    },
+
+    # --- Einstieg / Zielgruppen / Mindset ---
+    {
+        "name": "einstieg_unsicherheit",
+        "patterns": [
+            r"lange(r)? keinen sport", r"lange(r)? nicht trainiert", r"lange(r)? keinen sport gemacht",
+            r"unsportlich", r"anfanger", r"anfaenger", r"neuling", r"wieder anfangen", r"wieder starten", r"lange pause",
+        ],
+        "handler": answer_unsicherheit,
+    },
+    {
+        "name": "anfaenger",
+        "patterns": [
+            r"anfänger", r"anfaenger", r"neu im fitnessstudio", r"noch nie trainiert", r"erstes mal gym",
+        ],
+        "handler": answer_unsicherheit,
+    },
+    {
+        "name": "hemmung_angst",
+        "patterns": [
+            r"angst", r"hemmung", r"unangenehm", r"fremd", r"schäme", r"schaeme",
+        ],
+        "handler": answer_unsicherheit,
+    },
+    {
+        "name": "orientierung",
+        "patterns": [
+            r"weiß nicht wo ich anfangen soll", r"weiss nicht wo ich anfangen soll",
+            r"wo anfangen", r"wie anfangen", r"wie starte ich", r"keine ahnung", r"unsicher wie anfangen",
+        ],
+        "handler": answer_orientierung,
+    },
+    {
+        "name": "passt_zu_mir",
+        "patterns": [
+            r"passt das zu mir", r"ist das was für mich", r"bin ich richtig bei euch", r"eignet sich für mich",
+        ],
+        "handler": answer_orientierung,
+    },
+    {
+        "name": "wenig_zeit",
+        "patterns": [
+            r"wenig zeit", r"kaum zeit", r"kurz trainieren", r"schnelles training", r"30 minuten", r"halbe stunde",
+        ],
+        "handler": answer_orientierung,
+    },
+    {
+        "name": "zu_zweit",
+        "patterns": [
+            r"zu zweit", r"mit freund", r"mit freundin", r"zusammen trainieren", r"partner",
+        ],
+        "handler": answer_probetraining,
+    },
+    {
+        "name": "motivation",
+        "patterns": [
+            r"motivation", r"dranbleiben", r"keine lust", r"motivieren", r"schaffe ich das",
+        ],
+        "handler": answer_orientierung,
+    },
+    {
+        "name": "entscheidungshilfe",
+        "patterns": [
+            r"überlege noch", r"weiss nicht", r"weiß nicht", r"soll ich", r"unsicher",
+        ],
+        "handler": answer_orientierung,
+    },
+    {
+        "name": "bestaetigung",
+        "patterns": [
+            r"klingt gut", r"passt", r"\bok\b", r"interessant", r"dann mache ich",
+        ],
+        "handler": answer_probetraining,
+    },
+
+    # --- Ausstattung allgemein ---
+    {
+        "name": "ausstattung",
+        "patterns": [
+            r"\bausstattung\b", r"\bgera(te|ete)\b", r"\bgeräte\b", r"\bmaschinen\b", r"\bfrei?hantel\b",
+            r"\bkorperanalyse\b", r"\bkörperanalyse\b", r"\bvibration\b", r"\bwellness\b", r"\binfrarot\b", r"\bmassagesessel\b",
+        ],
+        "handler": answer_features,
+    },
+]
+
+def route_and_answer(user_text: str) -> str:
+    t = normalize(user_text)
+
+    g = infer_goal(t)
+    if g:
+        set_goal(g)
+
+    for intent in INTENTS:
+        patterns = intent.get("patterns", [])
+        if isinstance(patterns, list) and matches_any(t, patterns):
+            name = intent.get("name", "unknown")
+            stats = st.session_state.stats["intents"]
+            stats[name] = stats.get(name, 0) + 1
+
+            handler = intent.get("handler")
+            if callable(handler):
+                return handler(t)
+
+    st.session_state.stats["fallback"] += 1
+    return answer_default(t)
+
+# =========================================================
+# STREAMLIT UI
+# =========================================================
+st.set_page_config(page_title="PTC Online-Beratung", page_icon="💬")
+
+st.title("💬 Online-Beratung – PTC Fitnessstudio Hildesheim")
+st.caption(
+    "Guten Tag, ich bin der digitale Beratungsassistent des PTC Fitnessstudios Hildesheim. "
+    "Wie kann ich Ihnen helfen?"
+)
+
+with st.expander("Datenschutz-Hinweis", expanded=False):
+    st.write(
+        "Bitte geben Sie keine sensiblen Gesundheitsdaten ein. "
+        "Bei akuten Beschwerden wenden Sie sich an medizinisches Fachpersonal. "
+        "Ich gebe keine medizinischen Einschätzungen, sondern allgemeine Hinweise zum Studiostart."
+    )
+
+if "chat" not in st.session_state:
+    st.session_state.chat = []
+init_memory()
+init_stats()
+
+col1, col2, col3 = st.columns([1, 1, 2])
+with col1:
+    if st.button("Neues Gespräch"):
+        st.session_state.chat = []
+        st.session_state.memory = {"goal": None}
+        st.session_state.stats = {"intents": {}, "fallback": 0}
+        st.rerun()
+
+with col2:
+    st.link_button("📞 Anrufen", STUDIO["phone_tel"])
+
+with col3:
+    g = get_goal()
+    if g:
+        st.info(f"Merke ich mir: Ziel = {g}")
+
+with st.expander("📊 Interne Statistik (nur intern)", expanded=False):
+    stats = st.session_state.stats
+    if stats["intents"]:
+        st.write("**Intent-Treffer:**")
+        for k, v in sorted(stats["intents"].items(), key=lambda x: x[1], reverse=True):
+            st.write(f"• {k}: {v}")
+    else:
+        st.write("Noch keine Daten.")
+    st.write("---")
+    st.write(f"❓ Fallback (nicht erkannt): {stats['fallback']}")
+
+for msg in st.session_state.chat:
+    with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
+        st.write(msg["content"])
+
+user_input = st.chat_input("Ihre Frage (z.B. Probetraining, Kurse, Öffnungszeiten, Mitgliedschaft)")
+if user_input:
+    st.session_state.chat.append({"role": "user", "content": user_input})
+
+    answer = route_and_answer(user_input)
+    st.session_state.chat.append({"role": "assistant", "content": answer})
+
+    st.rerun()
+
+st.markdown("---")
+st.markdown(f"**Direkter Kontakt:** [{STUDIO['phone_display']}]({STUDIO['phone_tel']})")
 
     parts = [
         "Gern – hier unser aktueller Kursplan:",
